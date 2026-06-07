@@ -46,6 +46,19 @@ impl<'a> Parser<'a> {
         program
     }
 
+    // Check if the current token can start a statement
+    fn is_statement_start(&self) -> bool {
+        matches!(self.current_token,
+            Token::Struct | Token::Component | Token::Let | Token::Parallel |
+            Token::Target | Token::Proof | Token::SafeState | Token::Enclave |
+            Token::Comptime | Token::If | Token::For | Token::Return |
+            Token::Assert | Token::Test |
+            Token::Fn | Token::Pub | Token::AtSign | Token::Import |
+            Token::Cluster | Token::Unsafe | Token::Safe |
+            Token::Identifier(_)  // For function calls and expression statements
+        )
+    }
+
     fn parse_statement(&mut self) -> Option<Statement> {
         match self.current_token {
             Token::Struct => self.parse_struct_declaration(false),
@@ -324,7 +337,7 @@ impl<'a> Parser<'a> {
         } else if self.current_token == Token::Fn {
             self.parse_function_declaration(false, attributes)
         } else {
-            // DEBUG: eprintln!("[DEBUG PARSER] Expected Pub or Fn, got {:?}", self.current_token);
+            // "[DEBUG PARSER] Expected Pub or Fn, got {:?}", self.current_token);
             None
         }
     }
@@ -342,9 +355,15 @@ impl<'a> Parser<'a> {
             if let Some(stmt) = self.parse_statement() {
                 statements.push(stmt);
             }
-            self.next_token();
+            // Only advance if we haven't hit the closing brace
+            if self.current_token != Token::RBrace {
+                self.next_token();
+            }
         }
-        // Don't consume RBrace here - let the caller (function body parser) handle it
+        // Consume the cluster's closing RBrace so caller sees what comes after
+        if self.current_token == Token::RBrace {
+            self.next_token(); // consume '}'
+        }
         Some(Statement::ClusterBlock { statements })
     }
 
@@ -409,6 +428,7 @@ impl<'a> Parser<'a> {
             name,
             is_mut,
             is_secret,
+            var_type: None,  // Type inference will be handled separately
             value,
         })
     }
@@ -473,13 +493,11 @@ impl<'a> Parser<'a> {
         self.next_token(); // consume 'in'
 
         let start = self.parse_expression()?;
-        self.next_token(); // consume last token of expression
 
         if self.current_token != Token::DoubleDot { return None; }
         self.next_token(); // consume '..'
 
         let end = self.parse_expression()?;
-        self.next_token(); // consume last token of expression
 
         if self.current_token != Token::RParen { return None; }
         self.next_token(); // consume ')'
@@ -492,8 +510,12 @@ impl<'a> Parser<'a> {
             if let Some(stmt) = self.parse_statement() {
                 statements.push(stmt);
             }
-            self.next_token();
+            // Only advance if we haven't hit the closing brace
+            if self.current_token != Token::RBrace {
+                self.next_token();
+            }
         }
+        self.next_token(); // consume the closing '}' of the parallel block
 
         Some(Statement::ParallelBlock {
             iterator,
@@ -672,63 +694,63 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_function_declaration(&mut self, is_pub: bool, attributes: Vec<crate::ast::FunctionAttribute>) -> Option<Statement> {
-        // DEBUG: eprintln!("[DEBUG PARSER] parse_function_declaration: current_token: {:?}", self.current_token);
+        // "[DEBUG PARSER] parse_function_declaration: current_token: {:?}", self.current_token);
         if self.current_token != Token::Fn { 
-            // DEBUG: eprintln!("[DEBUG PARSER] parse_function_declaration: expected Fn, got {:?}", self.current_token);
+            // "[DEBUG PARSER] parse_function_declaration: expected Fn, got {:?}", self.current_token);
             return None; 
         }
         self.next_token(); // consume 'fn'
-        // DEBUG: eprintln!("[DEBUG PARSER] parse_function_declaration: after consuming 'fn': {:?}", self.current_token);
+        // "[DEBUG PARSER] parse_function_declaration: after consuming 'fn': {:?}", self.current_token);
 
         let name = match &self.current_token {
             Token::Identifier(id) => id.clone(),
             _ => { self.errors.push("Expected function name".to_string()); return None; }
         };
         self.next_token(); // consume name
-        // DEBUG: eprintln!("[DEBUG PARSER] parse_function_declaration: after consuming name '{}': {:?}", name, self.current_token);
+        // "[DEBUG PARSER] parse_function_declaration: after consuming name '{}': {:?}", name, self.current_token);
 
         if self.current_token != Token::LParen { 
-            // DEBUG: eprintln!("[DEBUG PARSER] parse_function_declaration: expected LParen, got {:?}", self.current_token);
+            // "[DEBUG PARSER] parse_function_declaration: expected LParen, got {:?}", self.current_token);
             return None; 
         }
         self.next_token(); // consume '('
-        // DEBUG: eprintln!("[DEBUG PARSER] parse_function_declaration: after consuming '(': {:?}", self.current_token);
+        // "[DEBUG PARSER] parse_function_declaration: after consuming '(': {:?}", self.current_token);
 
         let mut parameters = Vec::new();
         while self.current_token != Token::RParen && self.current_token != Token::Eof {
             let param_name = match &self.current_token {
                 Token::Identifier(id) => id.clone(),
                 _ => {
-                    // DEBUG: eprintln!("[DEBUG PARSER] parse_function_declaration: expected param name, got {:?}", self.current_token);
+                    // "[DEBUG PARSER] parse_function_declaration: expected param name, got {:?}", self.current_token);
                     return None;
                 }
             };
             self.next_token(); // consume name
-            // DEBUG: eprintln!("[DEBUG PARSER] parse_function_declaration: after consuming param name '{}': {:?}", param_name, self.current_token);
+            // "[DEBUG PARSER] parse_function_declaration: after consuming param name '{}': {:?}", param_name, self.current_token);
             if self.current_token != Token::Colon { 
-                // DEBUG: eprintln!("[DEBUG PARSER] parse_function_declaration: expected Colon, got {:?}", self.current_token);
+                // "[DEBUG PARSER] parse_function_declaration: expected Colon, got {:?}", self.current_token);
                 return None; 
             }
             self.next_token(); // consume ':'
-            // DEBUG: eprintln!("[DEBUG PARSER] parse_function_declaration: after consuming ':': {:?}", self.current_token);
+            // "[DEBUG PARSER] parse_function_declaration: after consuming ':': {:?}", self.current_token);
 
             let param_type = match self.parse_type() {
                 Some(t) => t,
                 None => {
-                    // DEBUG: eprintln!("[DEBUG PARSER] parse_function_declaration: parse_type failed");
+                    // "[DEBUG PARSER] parse_function_declaration: parse_type failed");
                     return None;
                 }
             };
-            // DEBUG: eprintln!("[DEBUG PARSER] parse_function_declaration: parsed type: {:?}", param_type);
+            // "[DEBUG PARSER] parse_function_declaration: parsed type: {:?}", param_type);
             parameters.push((param_name, param_type));
 
             if self.current_token == Token::Comma {
                 self.next_token(); // consume ','
             }
         }
-        // DEBUG: eprintln!("[DEBUG PARSER] parse_function_declaration: after param loop, current_token: {:?}", self.current_token);
+        // "[DEBUG PARSER] parse_function_declaration: after param loop, current_token: {:?}", self.current_token);
         self.next_token(); // consume ')'
-        // DEBUG: eprintln!("[DEBUG PARSER] parse_function_declaration: after consuming ')', current_token: {:?}", self.current_token);
+        // "[DEBUG PARSER] parse_function_declaration: after consuming ')', current_token: {:?}", self.current_token);
 
         let mut return_type = None;
         if self.current_token == Token::Arrow {
@@ -743,16 +765,15 @@ impl<'a> Parser<'a> {
         self.next_token(); // consume '{'
 
         let mut body = Vec::new();
-        // DEBUG: eprintln!("[DEBUG PARSER] parse_function_declaration: starting body parsing, current_token: {:?}", self.current_token);
         while self.current_token != Token::RBrace && self.current_token != Token::Eof {
-            // DEBUG: eprintln!("[DEBUG PARSER] parse_function_declaration: in body loop, current_token: {:?}", self.current_token);
             if let Some(stmt) = self.parse_statement() {
                 body.push(stmt);
             }
-            self.next_token();
-            // DEBUG: eprintln!("[DEBUG PARSER] parse_function_declaration: after next_token in body loop: {:?}", self.current_token);
+            // Only advance if we haven't hit the closing brace or a statement-starting token
+            if self.current_token != Token::RBrace && !self.is_statement_start() {
+                self.next_token();
+            }
         }
-        // DEBUG: eprintln!("[DEBUG PARSER] parse_function_declaration: body loop done, current_token: {:?}", self.current_token);
 
         Some(Statement::FunctionDeclaration {
             is_pub,
@@ -821,9 +842,33 @@ impl<'a> Parser<'a> {
         };
 
         let base_type = match &self.current_token {
+            Token::I8 => {
+                self.next_token();
+                crate::ast::Type::I8
+            }
+            Token::I32 => {
+                self.next_token();
+                crate::ast::Type::I32
+            }
+            Token::U64 => {
+                self.next_token();
+                crate::ast::Type::U64
+            }
+            Token::F32 => {
+                self.next_token();
+                crate::ast::Type::F32
+            }
+            Token::F64 => {
+                self.next_token();
+                crate::ast::Type::F64
+            }
             Token::Identifier(name) if name == "f64" => {
                 self.next_token();
                 crate::ast::Type::F64
+            }
+            Token::Bool => {
+                self.next_token();
+                crate::ast::Type::Bool
             }
             Token::Tensor => {
                 self.next_token();

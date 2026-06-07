@@ -9,21 +9,51 @@ void zeus_tls_handshake(void) {}
 int zeus_enclave_verify_token(void) { return 1; }
 void __zeus_serialize_mutation_ledger(const char* func_name) {}
 
-void zeus_free_tensor(zeus_tensor* t) {
-    if (t && t->data) {
-        free(t->data);
-        t->data = NULL;
+// Zeus M:N Fiber Fallbacks (Single-threaded degraded mode)
+zeus_fiber_group_t __zeus_fiber_group_create(void) { zeus_fiber_group_t fg = {0}; return fg; }
+void __zeus_fiber_spawn(zeus_fiber_group_t* fg, void* ctx) { fg->active_fibers++; }
+void __zeus_fiber_group_await(zeus_fiber_group_t* fg) { fg->active_fibers = 0; }
+
+// Zeus FFI Boundaries Memory Repacking Layer
+void __zeus_repack_aos_to_soa(void* aos_struct_array) { }
+
+// Zeus Static Arena Allocator (Zero-Heap Enforcer)
+#define ZEUS_ARENA_SIZE 1024 * 1024 * 64 // 64MB static pool
+static uint8_t __zeus_arena[ZEUS_ARENA_SIZE];
+static size_t __zeus_arena_offset = 0;
+
+void* __zeus_arena_alloc(size_t bytes) {
+    if (__zeus_arena_offset + bytes > ZEUS_ARENA_SIZE) {
+        fprintf(stderr, "[ZEUS OOM PANIC]: Static arena capacity exceeded.\n");
+        exit(1);
     }
+    void* ptr = &__zeus_arena[__zeus_arena_offset];
+    __zeus_arena_offset += bytes;
+    return ptr;
+}
+
+void __zeus_arena_reset(void) {
+    __zeus_arena_offset = 0;
+}
+
+// Provide memory lifecycle tools for legacy C code to clean up our tensors
+void zeus_free_tensor(zeus_tensor* t) {
+    // In a zero-heap model, individual frees are no-ops.
+    // Memory is reclaimed via arena resets or scope drops.
+    if (t) { t->data = NULL; }
 }
 
 void __zeus_safestate_handler() {
 }
 
 #line 1 "test_flags.zs"
-#line 2 "test_flags.zs"
-#line 2 "test_flags.zs"
 void process_data(double throttle) {
-    // [ZEUS ADAPTIVE]: JIT Profiler active with threshold: hot_path\n    __zeus_serialize_mutation_ledger("process_data");
+    if (!((throttle <= 100))) {
+        fprintf(stderr, "[ZEUS PANIC]: Zeus Runtime Verification Failure at test_flags.zs:%d: Constraint '%s' violated\n", __LINE__, "(throttle <= 100)");
+        exit(1);
+    }
+    // [ZEUS ADAPTIVE]: JIT Profiler active with threshold: hot_path
+    __zeus_serialize_mutation_ledger("process_data");
     // [ZEUS CLUSTER DISTRIBUTION: RDMA INJECTED]
     zeus_tls_handshake();
     if (!zeus_enclave_verify_token()) {

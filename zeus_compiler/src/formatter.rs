@@ -35,7 +35,7 @@ impl Formatter {
 
     fn format_statement(&mut self, stmt: &Statement) -> String {
         match stmt {
-            Statement::Let { name, is_mut, is_secret, value } => {
+            Statement::Let { name, is_mut, is_secret, value, var_type: _ } => {
                 let mut_str = if *is_mut { "mut " } else { "" };
                 let sec_str = if *is_secret { "secret " } else { "" };
                 format!(
@@ -335,7 +335,12 @@ impl Formatter {
 
     fn format_type(&self, ty: &Type) -> String {
         match ty {
+            Type::I8 => "i8".to_string(),
+            Type::I32 => "i32".to_string(),
+            Type::U64 => "u64".to_string(),
+            Type::F32 => "f32".to_string(),
             Type::F64 => "f64".to_string(),
+            Type::Bool => "bool".to_string(),
             Type::Tensor { dimensions, is_sparse } => {
                 let mut out = if *is_sparse { "sparse tensor".to_string() } else { "tensor".to_string() };
                 if !dimensions.is_empty() {

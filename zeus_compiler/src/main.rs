@@ -9,12 +9,11 @@ mod analyzer;
 mod lsp;
 mod mlir_codegen;
 mod formatter;
-mod package_manager;
 pub mod vm;
 pub mod comptime;
 
 use ast::Statement;
-use lexer::{Lexer, Token};
+use lexer::Lexer;
 use parser::Parser;
 use energy_profiler::EnergyProfiler;
 use formal_verifier::FormalVerifier;
@@ -101,16 +100,7 @@ fn main() {
             }
             verify_project(target, is_medical_mode);
         }
-        "add" => {
-            let url = if args.len() >= 3 { &args[2] } else { "" };
-            if url.is_empty() {
-                eprintln!("\x1b[31m[ZEUS ERROR]\x1b[0m Usage: zeus add <url>");
-                std::process::exit(1);
-            }
-            let mut pm = package_manager::PackageManager::new();
-            pm.add_package(url);
-            pm.fetch_dependencies();
-        }
+
         "strike" => {
             strike_project();
         }
@@ -139,7 +129,7 @@ fn print_usage() {
     println!("  \x1b[32mdoc\x1b[0m [file.zs]         Generate MISRA-C / Safety audit trace");
     println!("  \x1b[32mverify\x1b[0m [file.zs]      Formally verify (supports \x1b[33m--medical\x1b[0m)");
     println!("  \x1b[32mlsp\x1b[0m                  Start the Language Server Protocol daemon");
-    println!("  \x1b[32madd\x1b[0m <url>             Add a dependency via the package manager");
+
     println!();
     println!("\x1b[1;33mPower Commands:\x1b[0m");
     println!("  \x1b[35mstrike\x1b[0m               Aggressively clean, format & optimize the codebase");
@@ -417,7 +407,7 @@ fn strike_project() {
         
         let lexer = crate::lexer::Lexer::new(&input);
         let mut parser = crate::parser::Parser::new(lexer);
-        let mut program = parser.parse_program();
+        let program = parser.parse_program();
         
         if !parser.errors().is_empty() {
             println!("  \x1b[33m⚠\x1b[0m  Skipping {} (parse errors)", path);
@@ -469,7 +459,7 @@ fn format_project(source_path: &str) {
     let input = fs::read_to_string(source_path).unwrap();
     let lexer = Lexer::new(&input);
     let mut parser = Parser::new(lexer);
-    let mut program = parser.parse_program();
+    let program = parser.parse_program();
     let formatted = Formatter::format(&program);
     fs::write(source_path, formatted).unwrap();
     println!("\x1b[32m[✦] Formatted {}\x1b[0m", source_path);
@@ -558,7 +548,7 @@ fn generate_docs(source_path: &str) {
     let input = fs::read_to_string(source_path).unwrap();
     let lexer = Lexer::new(&input);
     let mut parser = Parser::new(lexer);
-    let mut program = parser.parse_program();
+    let program = parser.parse_program();
 
     let mut doc_content = format!("# Zeus Safety & Compliance Audit for `{}`\n\n", source_path);
     doc_content.push_str("## MISRA-C Compliance Report\n");

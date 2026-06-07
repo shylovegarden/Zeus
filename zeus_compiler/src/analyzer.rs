@@ -4,7 +4,7 @@ use crate::comptime::compiler::BytecodeCompiler;
 use crate::vm::machine::Machine;
 
 pub struct SemanticAnalyzer {
-    symbol_table: HashMap<String, bool>, // true if mut
+    symbol_table: HashMap<String, (bool, Type)>, // (is_mut, type)
     struct_schemas: HashMap<String, Vec<(String, crate::ast::Type)>>,
 }
 
@@ -31,16 +31,18 @@ impl SemanticAnalyzer {
                 }
                 self.struct_schemas.insert(name.clone(), fields.clone());
             }
-            Statement::Let { name, is_mut, is_secret: _, value } => {
+            Statement::Let { name, is_mut, is_secret: _, value, var_type } => {
                 self.analyze_expression(value)?;
-                self.symbol_table.insert(name.clone(), *is_mut);
+                let inferred = self.infer_type(value);
+                *var_type = Some(inferred.clone());
+                self.symbol_table.insert(name.clone(), (*is_mut, inferred));
             }
             Statement::ExpressionStatement(expr) => {
                 // Check if it's an assignment
-                if let Expression::Infix { left, operator, right } = expr {
+                if let Expression::Infix { left, operator, right: _ } = expr {
                     if operator == "Assign" {
                         if let Expression::Identifier(name) = &**left {
-                            if let Some(&is_mut) = self.symbol_table.get(name) {
+                            if let Some(&(is_mut, _)) = self.symbol_table.get(name) {
                                 if !is_mut {
                                     return Err(format!("Immutable variable '{}' cannot be reassigned. Use 'let mut'.", name));
                                 }
@@ -79,8 +81,8 @@ impl SemanticAnalyzer {
                 }
                 // In a real compiler, we would push a new scope block here.
                 // For this prototype, we'll register parameters as immutable in the global map
-                for (p_name, _) in parameters.iter() {
-                    self.symbol_table.insert(p_name.clone(), false);
+                for (p_name, ty) in parameters.iter() {
+                    self.symbol_table.insert(p_name.clone(), (false, ty.clone()));
                 }
                 for s in body {
                     self.analyze_statement(s)?;
@@ -88,13 +90,13 @@ impl SemanticAnalyzer {
             }
             Statement::For { iterator, body, .. } => {
                 // The loop iterator is essentially a mutable local
-                self.symbol_table.insert(iterator.clone(), true);
+                self.symbol_table.insert(iterator.clone(), (true, Type::I32));
                 for s in body {
                     self.analyze_statement(s)?;
                 }
             }
             Statement::ParallelBlock { iterator, start, end, statements } => {
-                self.symbol_table.insert(iterator.clone(), false);
+                self.symbol_table.insert(iterator.clone(), (false, Type::U64));
                 self.analyze_expression(start)?;
                 self.analyze_expression(end)?;
                 for s in statements {
@@ -239,5 +241,49 @@ impl SemanticAnalyzer {
             _ => {}
         }
         Ok(())
+    }
+
+    pub fn infer_type(&self, expr: &Expression) -> Type {
+        match expr {
+            Expression::Number(_) => Type::F64,
+            Expression::StringLiteral(_) => Type::Unknown("String".to_string()),
+            Expression::Identifier(name) => {
+                if let Some((_, ty)) = self.symbol_table.get(name) {
+                    ty.clone()
+                } else {
+                    Type::Unknown(name.clone())
+                }
+            }
+            Expression::StructInit { name, .. } => Type::Struct(name.clone()),
+            Expression::Infix { left, operator, .. } => {
+                if operator == "Equal" || operator == "NotEqual" || operator == "LessThan" || operator == "GreaterThan" {
+                    return Type::Bool;
+                }
+                self.infer_type(left)
+            }
+            Expression::FunctionCall { .. } => Type::Unknown("FuncResult".to_string()),
+            Expression::FieldAccess { base, field } => {
+                let base_ty = self.infer_type(base);
+                if let Type::Struct(s_name) = base_ty {
+                    if let Some(fields) = self.struct_schemas.get(&s_name) {
+                        for (f_name, f_ty) in fields {
+                            if f_name == field {
+                                return f_ty.clone();
+                            }
+                        }
+                    }
+                }
+                Type::Unknown(field.clone())
+            }
+            Expression::IndexAccess { base, .. } => {
+                let base_ty = self.infer_type(base);
+                if let Type::Array(inner, _) = base_ty {
+                    *inner
+                } else {
+                    Type::Unknown("ArrayElem".to_string())
+                }
+            }
+            _ => Type::Unknown("UnknownExpr".to_string())
+        }
     }
 }

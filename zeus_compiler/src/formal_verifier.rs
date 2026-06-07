@@ -24,7 +24,7 @@ impl FormalVerifier {
 
     fn verify_statement(&mut self, stmt: &Statement) -> Result<(), String> {
         match stmt {
-            Statement::Let { name, value, is_mut, is_secret: _ } => {
+            Statement::Let { name, value, is_mut, is_secret: _, var_type: _ } => {
                 if !is_mut {
                     if let Some(val) = self.evaluate_constant(value) {
                         self.constants.insert(name.clone(), val);

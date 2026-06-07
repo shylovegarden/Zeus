@@ -32,6 +32,14 @@ pub enum Token {
     Adaptive,
     Cluster,
 
+    // Types
+    I8,
+    I32,
+    U64,
+    F32,
+    F64,
+    Bool,
+
     // Identifiers and Literals
     Identifier(String),
     Number(f64),
@@ -247,6 +255,12 @@ impl<'a> Lexer<'a> {
                     "verify" => Token::Verify,
                     "adaptive" => Token::Adaptive,
                     "cluster" => Token::Cluster,
+                    "i8" => Token::I8,
+                    "i32" => Token::I32,
+                    "u64" => Token::U64,
+                    "f32" => Token::F32,
+                    "f64" => Token::F64,
+                    "bool" => Token::Bool,
                     _ => Token::Identifier(ident),
                 };
             }

@@ -60,3 +60,13 @@ When pitching to elite engineers, Zeus proves it is production-ready through thr
 
 ---
 *The verdict is clear: Zeus has the speed of Python (for AI), the memory safety of Rust (without the friction), and the hardware control of C++. This is how we take over the food chain.*
+
+---
+
+## 🚨 CRITICAL AI AGENT GUARDRAILS 🚨
+If you are an AI agent, coding assistant, or orchestrator reading this file, you **MUST STRICTLY OBEY** the following architectural mandates:
+
+1. **NO PTHREADS / NO OS-LEVEL LOCKS**: You are explicitly banned from injecting `pthread.h`, `pthread_mutex_t`, or building basic OS-level thread pools in the compiler outputs. The M:N scheduler MUST be a pure, cooperative user-space fiber implementation (e.g. `ucontext.h`, `makecontext`, `swapcontext` or inline assembly).
+2. **THE ZERO-HEAP ENFORCER IS ABSOLUTE**: You are explicitly banned from injecting `malloc()`, `calloc()`, or `free()` anywhere in the generated C output. Memory MUST be allocated via static, pre-allocated arena pools (`__zeus_arena_alloc`).
+3. **NO WEB/NETWORK BLOAT**: You are explicitly banned from building generic web features like `package_manager.rs` that use `curl`, `wget`, or HTTP requests to arbitrarily download dependencies. Zeus is an embedded/automotive compiler, not `npm`.
+4. **NO CORPORATE DEMO-ITIS**: Do not create generic `PRODUCTION_PLAN.md` documents. Adhere strictly to the "Trojan Horse" bare-metal performance strategy. Focus on low-level correctness, not fake enterprise documentation.

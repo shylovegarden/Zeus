@@ -5,7 +5,12 @@ pub struct Program {
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum Type {
+    I8,
+    I32,
+    U64,
+    F32,
     F64,
+    Bool,
     Tensor { dimensions: Vec<Expression>, is_sparse: bool },
     Array(Box<Type>, Box<Expression>),
     Struct(String),
@@ -20,6 +25,7 @@ pub enum Statement {
         name: String,
         is_mut: bool,
         is_secret: bool,
+        var_type: Option<Type>,
         value: Expression,
     },
     StructDeclaration {
