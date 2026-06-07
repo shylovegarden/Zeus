@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ZeusOS | Hybrid Telemetry Analytics</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="background-aurora"></div>
+    <div class="background-grid"></div>
+
+    <main class="dashboard-container">
+        <header class="dashboard-header glass-panel">
+            <div class="brand">
+                <div class="logo">⚡</div>
+                <div class="brand-text">
+                    <h1>ZeusOS</h1>
+                    <span class="subtitle">Aether Hybrid Analytics Engine</span>
+                </div>
+            </div>
+            <div class="status-indicator">
+                <div class="pulse-dot"></div>
+                <span>Backend: Online & Lock-Free</span>
+            </div>
+        </header>
+
+        <section class="metrics-grid">
+            <div class="metric-card glass-panel">
+                <h3>Live Engine RPM</h3>
+                <div class="metric-value" id="val-rpm">0</div>
+                <div class="metric-chart" id="chart-rpm"></div>
+            </div>
+            <div class="metric-card glass-panel">
+                <h3>Heat Index (J)</h3>
+                <div class="metric-value" id="val-heat">0.00</div>
+                <div class="metric-chart" id="chart-heat"></div>
+            </div>
+            <div class="metric-card glass-panel">
+                <h3>System Jitter</h3>
+                <div class="metric-value highlight-green" id="val-jitter">0 ns</div>
+                <div class="metric-label">100% Deterministic</div>
+            </div>
+            <div class="metric-card glass-panel">
+                <h3>Data Throughput</h3>
+                <div class="metric-value" id="val-throughput">12.5 GB/s</div>
+                <div class="metric-label">Invisible SoA Transform Active</div>
+            </div>
+        </section>
+
+        <section class="console-panel glass-panel">
+            <div class="console-header">
+                <h3>Zeus FFI Telemetry Bridge</h3>
+                <span class="badge">M:N Fibers Active</span>
+            </div>
+            <div class="console-output" id="console-output">
+                <!-- Log lines will be appended here -->
+            </div>
+        </section>
+    </main>
+
+    <script src="app.js"></script>
+</body>
+</html>

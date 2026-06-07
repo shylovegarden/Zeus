@@ -1,0 +1,36 @@
+{
+  "name": "zeus",
+  "displayName": "Zeus Language",
+  "description": "Syntax highlighting for the Zeus programming language",
+  "version": "0.1.0",
+  "engines": {
+    "vscode": "^1.60.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "contributes": {
+    "languages": [
+      {
+        "id": "zeus",
+        "aliases": [
+          "Zeus",
+          "zeus"
+        ],
+        "extensions": [
+          ".zs",
+          ".zeus",
+          ".shy"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "zeus",
+        "scopeName": "source.zeus",
+        "path": "./syntaxes/zeus.tmLanguage.json"
+      }
+    ]
+  }
+}

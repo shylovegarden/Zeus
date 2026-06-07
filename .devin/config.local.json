@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Exec(cargo build)",
+      "Exec(./target/debug/zeus_compiler build)"
+    ]
+  }
+}
