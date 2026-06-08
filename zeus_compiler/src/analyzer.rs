@@ -245,7 +245,7 @@ impl SemanticAnalyzer {
                 self.analyze_expression(base)?;
                 self.analyze_expression(index)?;
             }
-            Expression::OramAccess { base, index } => {
+            Expression::OramAccess { base, index, bound: _ } => {
                 self.analyze_expression(base)?;
                 self.analyze_expression(index)?;
             }

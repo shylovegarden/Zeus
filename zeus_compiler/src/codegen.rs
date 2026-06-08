@@ -717,6 +717,8 @@ impl CCodegen {
                 }
                 self.secret_vars.borrow_mut().push(Vec::new());
 
+                let mut is_adaptive = false;
+
                 for attr in attributes {
                     match attr {
                         crate::ast::FunctionAttribute::Verify(expr, has_timed_out) => {
@@ -729,24 +731,13 @@ impl CCodegen {
                                 out.push_str(&format!("{}    }}\n", pad));
                             }
                         }
-                        crate::ast::FunctionAttribute::Adaptive(params) => {
+                        crate::ast::FunctionAttribute::Adaptive(_) => {
                             if self.disable_adaptive {
                                 out.push_str(&format!("{}    // [ZEUS ADAPTIVE]: Disabled via --disable-adaptive. Running purely deterministic.\n", pad));
                             } else {
-                                out.push_str(&format!("{}    // [ZEUS ADAPTIVE]: Micro AI Inference Watchdog Active (Threshold: {})\n", pad, params));
-                                out.push_str(&format!("{}    float _ai_fuel_usage = 10.0f; // MASSIVE ANOMALY (Fuel Spike)\n", pad));
-                                out.push_str(&format!("{}    float _ai_latency_spike = -5.0f; // MASSIVE ANOMALY (Latency Drop/Desync)\n", pad));
-                                out.push_str(&format!("{}    float _ai_confidence = __zeus_simd_inference_mock(_ai_fuel_usage, _ai_latency_spike);\n", pad));
-                                out.push_str(&format!("{}    if (_ai_confidence > 0.5f) {{\n", pad));
-                                out.push_str(&format!("{}        fprintf(stderr, \"\\n[ZEUS MICRO AI] FATAL ANOMALY DETECTED IN {}. Confidence: %.2f.\\n\", _ai_confidence);\n", pad, name));
-                                out.push_str(&format!("{}        fprintf(stderr, \"[ZEUS MICRO AI] Tripping Circuit Breaker -> Entering Formal Limp Mode...\\n\");\n", pad));
-                                out.push_str(&format!("{}        __zeus_safestate_handler();\n", pad));
-                                if c_ret == "void" {
-                                    out.push_str(&format!("{}        return;\n", pad));
-                                } else {
-                                    out.push_str(&format!("{}        return 0;\n", pad));
-                                }
-                                out.push_str(&format!("{}    }}\n", pad));
+                                is_adaptive = true;
+                                out.push_str(&format!("{}    // [ZEUS LFSR] Self-Polymorphic Thermal Scrambler Active\n", pad));
+                                out.push_str(&format!("{}    unsigned short _zeus_lfsr = __rdtsc() ^ (unsigned short)(unsigned long)&_zeus_lfsr;\n", pad));
                             }
                         }
                         _ => {}
@@ -754,6 +745,16 @@ impl CCodegen {
                 }
 
                 for s in body {
+                    if is_adaptive {
+                        out.push_str(&format!("{}    {{\n", pad));
+                        out.push_str(&format!("{}        unsigned short _zeus_bit = ((_zeus_lfsr >> 0) ^ (_zeus_lfsr >> 2) ^ (_zeus_lfsr >> 3) ^ (_zeus_lfsr >> 5)) & 1;\n", pad));
+                        out.push_str(&format!("{}        _zeus_lfsr = (_zeus_lfsr >> 1) | (_zeus_bit << 15);\n", pad));
+                        out.push_str(&format!("{}        if (_zeus_lfsr % 2 == 0) {{\n", pad));
+                        out.push_str(&format!("{}            volatile int _zeus_noise = 0;\n", pad));
+                        out.push_str(&format!("{}            for (int _n = 0; _n < (_zeus_lfsr % 16); _n++) _zeus_noise += _n;\n", pad));
+                        out.push_str(&format!("{}        }}\n", pad));
+                        out.push_str(&format!("{}    }}\n", pad));
+                    }
                     out.push_str(&self.generate_statement(s, indent + 1));
                 }
                 let scope_vars = self.secret_vars.borrow_mut().pop().unwrap();
@@ -1024,11 +1025,11 @@ impl CCodegen {
             Expression::IndexAccess { base, index } => {
                 format!("{}[{}]", self.generate_expression(base), self.generate_expression(index))
             }
-            Expression::OramAccess { base, index } => {
+            Expression::OramAccess { base, index, bound } => {
                 let b = self.generate_expression(base);
                 let i = self.generate_expression(index);
-                // ORAM Dummy Sequence: Flattening memory access to disguise hardware bus activity
-                format!("({{\n    volatile int _dummy = 0;\n    _dummy = {}[__rdtsc() % 2];\n    _dummy = {}[__rdtsc() % 2];\n    {}[{}];\n}})", b, b, b, i)
+                // True Linear ORAM Scan: O(N) lookup masking physical intent
+                format!("({{\n    volatile double _res = 0;\n    for (int _j = 0; _j < {}; _j++) {{\n        // Constant-time bitwise mask selection\n        // Uses standard tricks: if _j == i, mask is ~0, else 0\n        // For floating point in C without strict union casting, we simulate branchless\n        int _mask = -(_j == (int)({}));\n        union {{ double d; unsigned long long int i; }} _u_res, _u_val;\n        _u_res.d = _res;\n        _u_val.d = {}[_j];\n        _u_res.i = (_u_res.i & ~_mask) | (_u_val.i & _mask);\n        _res = _u_res.d;\n    }}\n    _res;\n}})", bound, i, b)
             }
             Expression::Try(inner) => {
                 let inner_c = self.generate_expression(inner);
@@ -1534,10 +1535,10 @@ impl CCodegen {
             Expression::IndexAccess { base, index } => {
                 format!("{}[{}]", self.generate_parallel_expression(base, shared_vars, iterator), self.generate_parallel_expression(index, shared_vars, iterator))
             }
-            Expression::OramAccess { base, index } => {
+            Expression::OramAccess { base, index, bound } => {
                 let b = self.generate_parallel_expression(base, shared_vars, iterator);
                 let i = self.generate_parallel_expression(index, shared_vars, iterator);
-                format!("({{\n    volatile int _dummy = 0;\n    _dummy = {}[__rdtsc() % 2];\n    _dummy = {}[__rdtsc() % 2];\n    {}[{}];\n}})", b, b, b, i)
+                format!("({{\n    volatile double _res = 0;\n    for (int _j = 0; _j < {}; _j++) {{\n        int _mask = -(_j == (int)({}));\n        union {{ double d; unsigned long long int i; }} _u_res, _u_val;\n        _u_res.d = _res;\n        _u_val.d = {}[_j];\n        _u_res.i = (_u_res.i & ~_mask) | (_u_val.i & _mask);\n        _res = _u_res.d;\n    }}\n    _res;\n}})", bound, i, b)
             }
             Expression::Try(inner) => {
                 format!("ZEUS_TRY({})", self.generate_parallel_expression(inner, shared_vars, iterator))

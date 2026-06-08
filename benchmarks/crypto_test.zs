@@ -1,6 +1,7 @@
 import zeus.crypto;
 import zeus.io;
 
+@adaptive(0.95)
 pub fn main() {
     println(1.0); // Debug: Started Crypto Test
 

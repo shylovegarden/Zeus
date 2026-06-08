@@ -149,5 +149,6 @@ pub enum Expression {
     OramAccess {
         base: Box<Expression>,
         index: Box<Expression>,
+        bound: usize,
     },
 }

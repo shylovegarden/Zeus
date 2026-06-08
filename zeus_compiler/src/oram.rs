@@ -103,7 +103,7 @@ fn transform_expression(expr: &mut Expression) {
                 transform_expression(dim);
             }
         }
-        Expression::OramAccess { base, index } => {
+        Expression::OramAccess { base, index, bound: _ } => {
             transform_expression(base);
             transform_expression(index);
         }
@@ -117,7 +117,10 @@ fn transform_expression(expr: &mut Expression) {
     // Now if it is an IndexAccess, rewrite it to OramAccess
     if replace_with_oram {
         if let Expression::IndexAccess { base, index } = expr.clone() {
-            *expr = Expression::OramAccess { base, index };
+            // Very simple heuristic to find bound: fallback to 256 for cryptographic block constraints.
+            // A more advanced compiler pass would pull sizes from type declarations.
+            let bound = 256; 
+            *expr = Expression::OramAccess { base, index, bound };
         }
     }
 }
