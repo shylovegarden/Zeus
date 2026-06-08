@@ -227,7 +227,18 @@ fn build_project(source_path: &str, run_after: bool, mlir_mode: bool, cross_targ
     let mut resolved_statements = Vec::new();
     for stmt in program.statements {
         if let Statement::Import(path) = stmt {
-            let std_path = source_dir.join(format!("std/{}.zs", path.replace(".", "/")));
+            let mut std_path = source_dir.join(format!("std/{}.zs", path.replace(".", "/")));
+            if !std_path.exists() {
+                if let Ok(cwd) = std::env::current_dir() {
+                    let alt_path = cwd.join(format!("std/{}.zs", path.replace(".", "/")));
+                    if alt_path.exists() {
+                        std_path = alt_path;
+                    } else if let Some(p) = cwd.parent() {
+                        let alt_path2 = p.join(format!("std/{}.zs", path.replace(".", "/")));
+                        if alt_path2.exists() { std_path = alt_path2; }
+                    }
+                }
+            }
             if std_path.exists() {
                 let std_input = fs::read_to_string(&std_path).unwrap();
                 let std_lexer = Lexer::new(&std_input);
@@ -632,7 +643,18 @@ fn verify_project(source_path: &str, is_medical_mode: bool) {
     let mut resolved_statements = Vec::new();
     for stmt in program.statements {
         if let Statement::Import(path) = stmt {
-            let std_path = source_dir.join(format!("std/{}.zs", path.replace(".", "/")));
+            let mut std_path = source_dir.join(format!("std/{}.zs", path.replace(".", "/")));
+            if !std_path.exists() {
+                if let Ok(cwd) = std::env::current_dir() {
+                    let alt_path = cwd.join(format!("std/{}.zs", path.replace(".", "/")));
+                    if alt_path.exists() {
+                        std_path = alt_path;
+                    } else if let Some(p) = cwd.parent() {
+                        let alt_path2 = p.join(format!("std/{}.zs", path.replace(".", "/")));
+                        if alt_path2.exists() { std_path = alt_path2; }
+                    }
+                }
+            }
             if std_path.exists() {
                 let std_input = fs::read_to_string(&std_path).unwrap();
                 let std_lexer = Lexer::new(&std_input);

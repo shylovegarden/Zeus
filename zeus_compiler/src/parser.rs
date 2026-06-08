@@ -119,6 +119,9 @@ impl<'a> Parser<'a> {
                         break; // current_token is still the identifier
                     }
                 }
+                if self.peek_token == Token::Semicolon {
+                    self.next_token(); // consume identifier and move to semicolon
+                }
                 Some(Statement::Import(path))
             }
             Token::For => self.parse_for_statement(),
@@ -721,8 +724,7 @@ impl<'a> Parser<'a> {
             self.next_token();
         }
         let mut alternative = None;
-        if self.peek_token == Token::Else {
-            self.next_token(); // move to 'else'
+        if self.current_token == Token::Else {
             self.next_token(); // consume 'else'
             
             if self.current_token == Token::If {

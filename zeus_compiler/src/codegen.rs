@@ -874,7 +874,13 @@ impl CCodegen {
     pub fn generate_expression(&self, expr: &Expression) -> String {
         match expr {
             Expression::Identifier(name) => name.clone(),
-            Expression::Number(val) => val.to_string(),
+            Expression::Number(val) => {
+                if val.fract() == 0.0 {
+                    format!("{}.0", val)
+                } else {
+                    val.to_string()
+                }
+            },
             Expression::StringLiteral(s) => format!("\"{}\"", s),
             Expression::Infix { left, operator, right } => {
                 let l = self.generate_expression(left);
@@ -993,7 +999,13 @@ impl CCodegen {
                     format!("{}({})", name, args_c.join(", "))
                 }
             }
-            Expression::StructInit { .. } => "0".to_string(),
+            Expression::StructInit { name, fields } => {
+                let mut field_strs = Vec::new();
+                for (f_name, f_expr) in fields {
+                    field_strs.push(format!(".{} = {}", f_name, self.generate_expression(f_expr)));
+                }
+                format!("({}){{ {} }}", name, field_strs.join(", "))
+            }
             Expression::FieldAccess { base, field } => {
                 if let Expression::IndexAccess { base: arr_base, index } = &**base {
                     if let Expression::Identifier(arr_name) = &**arr_base {
@@ -1414,7 +1426,13 @@ impl CCodegen {
                     format!("({} {} {})", left_c, op_str, right_c)
                 }
             }
-            Expression::Number(n) => n.to_string(),
+            Expression::Number(val) => {
+                if val.fract() == 0.0 {
+                    format!("{}.0", val)
+                } else {
+                    val.to_string()
+                }
+            },
             Expression::StringLiteral(s) => format!("\"{}\"", s),
             Expression::TensorDefinition { dimensions } => {
                 let dim1 = if dimensions.len() > 0 { self.generate_parallel_expression(&dimensions[0], shared_vars, iterator) } else { "1".to_string() };
@@ -1491,7 +1509,13 @@ impl CCodegen {
                     format!("{}({})", name, args_c.join(", "))
                 }
             }
-            Expression::StructInit { .. } => "0".to_string(),
+            Expression::StructInit { name, fields } => {
+                let mut field_strs = Vec::new();
+                for (f_name, f_expr) in fields {
+                    field_strs.push(format!(".{} = {}", f_name, self.generate_parallel_expression(f_expr, shared_vars, iterator)));
+                }
+                format!("({}){{ {} }}", name, field_strs.join(", "))
+            }
             Expression::FieldAccess { base, field } => {
                 if let Expression::IndexAccess { base: arr_base, index } = &**base {
                     if let Expression::Identifier(arr_name) = &**arr_base {
