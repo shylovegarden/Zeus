@@ -46,6 +46,7 @@ zeus_compiler/side_channel_test
 # Rust / Cargo
 target/
 Cargo.lock
+build/
 
 # Secret architecture blueprints
 # Allow tracking of hardware blueprints
