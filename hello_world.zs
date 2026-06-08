@@ -1,6 +1,6 @@
 
 pub fn compute(n: f64) -> f64 {
-    return n Star 1;
+    return n * 1;
 }
 
 
@@ -12,13 +12,13 @@ pub fn main() {
         let c = compute(3);
     }
     proof {
-        assert(token GreaterEqual 0);
+        assert(token >= 0);
     }
 }
 
 
 test fn sanity() {
     proof {
-        assert(compute(7) GreaterEqual 0);
+        assert(compute(7) >= 0);
     }
 }

@@ -28,6 +28,14 @@ impl<'a> Parser<'a> {
         self.peek_token = self.lexer.next_token();
     }
 
+    fn advance_after_statement(&mut self, prev_token: &Token) {
+        if self.current_token == Token::Semicolon {
+            self.next_token();
+        } else if &self.current_token == prev_token {
+            self.next_token();
+        }
+    }
+
     pub fn parse_program(&mut self) -> Program {
         let mut program = Program {
             statements: Vec::new(),
@@ -37,10 +45,11 @@ impl<'a> Parser<'a> {
             let current_line = self.lexer.line_number;
             program.statements.push(Statement::LineDirective(current_line));
 
+            let prev_token = self.current_token.clone();
             if let Some(stmt) = self.parse_statement() {
                 program.statements.push(stmt);
             }
-            self.next_token();
+            self.advance_after_statement(&prev_token);
         }
 
         program
@@ -53,9 +62,7 @@ impl<'a> Parser<'a> {
             Token::Target | Token::Proof | Token::SafeState | Token::Enclave |
             Token::Comptime | Token::If | Token::For | Token::Return |
             Token::Assert | Token::Test |
-            Token::Fn | Token::Pub | Token::AtSign | Token::Import |
-            Token::Cluster | Token::Unsafe | Token::Safe |
-            Token::Identifier(_)  // For function calls and expression statements
+            Token::AtSign | Token::Panic | Token::Extern | Token::Pub | Token::Fn | Token::Cluster
         )
     }
 
@@ -84,11 +91,14 @@ impl<'a> Parser<'a> {
                 }
                 let expr = self.parse_expression()?;
                 if has_paren {
-                    self.next_token(); // move to expected ')'
+                    if self.current_token != Token::RParen {
+                        self.next_token(); // move to expected ')'
+                    }
                     if self.current_token != Token::RParen {
                         self.errors.push("Expected ')' after assert expression".to_string());
                         return None;
                     }
+                    self.next_token(); // consume ')'
                 }
                 // Do NOT consume RParen here, let the caller's self.next_token() do it.
                 Some(Statement::Assert(expr))
@@ -322,9 +332,13 @@ impl<'a> Parser<'a> {
             self.next_token(); // consume '{'
             let mut statements = Vec::new();
             while self.current_token != Token::RBrace && self.current_token != Token::Eof {
+                let prev_token = self.current_token.clone();
                 if let Some(stmt) = self.parse_statement() {
                     statements.push(stmt);
                 }
+                self.advance_after_statement(&prev_token);
+            }
+            if self.current_token == Token::RBrace {
                 self.next_token();
             }
             return Some(Statement::CfgBlock { arch: cfg_arch, statements });
@@ -352,13 +366,11 @@ impl<'a> Parser<'a> {
 
         let mut statements = Vec::new();
         while self.current_token != Token::RBrace && self.current_token != Token::Eof {
+            let prev_token = self.current_token.clone();
             if let Some(stmt) = self.parse_statement() {
                 statements.push(stmt);
             }
-            // Only advance if we haven't hit the closing brace
-            if self.current_token != Token::RBrace {
-                self.next_token();
-            }
+            self.advance_after_statement(&prev_token);
         }
         // Consume the cluster's closing RBrace so caller sees what comes after
         if self.current_token == Token::RBrace {
@@ -377,12 +389,15 @@ impl<'a> Parser<'a> {
 
         let mut statements = Vec::new();
         while self.current_token != Token::RBrace && self.current_token != Token::Eof {
+            let prev_token = self.current_token.clone();
             if let Some(stmt) = self.parse_statement() {
                 statements.push(stmt);
             }
+            self.advance_after_statement(&prev_token);
+        }
+        if self.current_token == Token::RBrace {
             self.next_token();
         }
-
         Some(Statement::ComptimeBlock { statements })
     }
 
@@ -479,41 +494,66 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_parallel_block(&mut self) -> Option<Statement> {
+        println!("[DEBUG] Entering parse_parallel_block, current_token = {:?}", self.current_token);
         self.next_token(); // consume 'parallel'
-        if self.current_token != Token::LParen { return None; }
+        if self.current_token != Token::LParen {
+            println!("[DEBUG] Failed at LParen check, got {:?}", self.current_token);
+            return None;
+        }
         self.next_token(); // consume '('
 
         let iterator = match &self.current_token {
             Token::Identifier(id) => id.clone(),
-            _ => return None,
+            _ => {
+                println!("[DEBUG] Failed to match identifier, got {:?}", self.current_token);
+                return None;
+            }
         };
         self.next_token(); // consume identifier
 
-        if self.current_token != Token::In { return None; }
+        if self.current_token != Token::In {
+            println!("[DEBUG] Failed at In check, got {:?}", self.current_token);
+            return None;
+        }
         self.next_token(); // consume 'in'
 
         let start = self.parse_expression()?;
-
-        if self.current_token != Token::DoubleDot { return None; }
+        println!("[DEBUG] parsed start = {:?}, current_token = {:?}", start, self.current_token);
+        if self.current_token != Token::DoubleDot {
+            self.next_token();
+            println!("[DEBUG] advanced in start, current_token = {:?}", self.current_token);
+        }
+        if self.current_token != Token::DoubleDot {
+            println!("[DEBUG] Failed at DoubleDot check, got {:?}", self.current_token);
+            return None;
+        }
         self.next_token(); // consume '..'
 
         let end = self.parse_expression()?;
-
-        if self.current_token != Token::RParen { return None; }
+        println!("[DEBUG] parsed end = {:?}, current_token = {:?}", end, self.current_token);
+        if self.current_token != Token::RParen {
+            self.next_token();
+            println!("[DEBUG] advanced in end, current_token = {:?}", self.current_token);
+        }
+        if self.current_token != Token::RParen {
+            println!("[DEBUG] Failed at RParen check, got {:?}", self.current_token);
+            return None;
+        }
         self.next_token(); // consume ')'
 
-        if self.current_token != Token::LBrace { return None; }
+        if self.current_token != Token::LBrace {
+            println!("[DEBUG] Failed at LBrace check, got {:?}", self.current_token);
+            return None;
+        }
         self.next_token(); // consume '{'
 
         let mut statements = Vec::new();
         while self.current_token != Token::RBrace && self.current_token != Token::Eof {
+            let prev_token = self.current_token.clone();
             if let Some(stmt) = self.parse_statement() {
                 statements.push(stmt);
             }
-            // Only advance if we haven't hit the closing brace
-            if self.current_token != Token::RBrace {
-                self.next_token();
-            }
+            self.advance_after_statement(&prev_token);
         }
         self.next_token(); // consume the closing '}' of the parallel block
 
@@ -544,12 +584,15 @@ impl<'a> Parser<'a> {
 
         let mut statements = Vec::new();
         while self.current_token != Token::RBrace && self.current_token != Token::Eof {
+            let prev_token = self.current_token.clone();
             if let Some(stmt) = self.parse_statement() {
                 statements.push(stmt);
             }
+            self.advance_after_statement(&prev_token);
+        }
+        if self.current_token == Token::RBrace {
             self.next_token();
         }
-
         Some(Statement::TargetBlock { targets, statements })
     }
 
@@ -560,12 +603,15 @@ impl<'a> Parser<'a> {
 
         let mut statements = Vec::new();
         while self.current_token != Token::RBrace && self.current_token != Token::Eof {
+            let prev_token = self.current_token.clone();
             if let Some(stmt) = self.parse_statement() {
                 statements.push(stmt);
             }
+            self.advance_after_statement(&prev_token);
+        }
+        if self.current_token == Token::RBrace {
             self.next_token();
         }
-
         Some(Statement::ProofBlock { statements })
     }
 
@@ -576,12 +622,15 @@ impl<'a> Parser<'a> {
 
         let mut statements = Vec::new();
         while self.current_token != Token::RBrace && self.current_token != Token::Eof {
+            let prev_token = self.current_token.clone();
             if let Some(stmt) = self.parse_statement() {
                 statements.push(stmt);
             }
+            self.advance_after_statement(&prev_token);
+        }
+        if self.current_token == Token::RBrace {
             self.next_token();
         }
-
         Some(Statement::SafeStateBlock { statements })
     }
 
@@ -592,12 +641,15 @@ impl<'a> Parser<'a> {
 
         let mut statements = Vec::new();
         while self.current_token != Token::RBrace && self.current_token != Token::Eof {
+            let prev_token = self.current_token.clone();
             if let Some(stmt) = self.parse_statement() {
                 statements.push(stmt);
             }
+            self.advance_after_statement(&prev_token);
+        }
+        if self.current_token == Token::RBrace {
             self.next_token();
         }
-
         Some(Statement::EnclaveBlock { statements })
     }
 
@@ -614,25 +666,30 @@ impl<'a> Parser<'a> {
         self.next_token(); // consume 'in'
 
         let start = self.parse_expression()?;
-        self.next_token(); // consume last token of expression
-
+        if self.current_token != Token::DoubleDot {
+            self.next_token();
+        }
         if self.current_token != Token::DoubleDot { return None; }
         self.next_token(); // consume '..'
 
         let end = self.parse_expression()?;
-        self.next_token(); // consume last token of expression
-
+        if self.current_token != Token::LBrace {
+            self.next_token();
+        }
         if self.current_token != Token::LBrace { return None; }
         self.next_token(); // consume '{'
 
         let mut body = Vec::new();
         while self.current_token != Token::RBrace && self.current_token != Token::Eof {
+            let prev_token = self.current_token.clone();
             if let Some(stmt) = self.parse_statement() {
                 body.push(stmt);
             }
+            self.advance_after_statement(&prev_token);
+        }
+        if self.current_token == Token::RBrace {
             self.next_token();
         }
-
         Some(Statement::For {
             iterator,
             start,
@@ -654,12 +711,15 @@ impl<'a> Parser<'a> {
 
         let mut consequence = Vec::new();
         while self.current_token != Token::RBrace && self.current_token != Token::Eof {
+            let prev_token = self.current_token.clone();
             if let Some(stmt) = self.parse_statement() {
                 consequence.push(stmt);
             }
+            self.advance_after_statement(&prev_token);
+        }
+        if self.current_token == Token::RBrace {
             self.next_token();
         }
-
         let mut alternative = None;
         if self.peek_token == Token::Else {
             self.next_token(); // move to 'else'
@@ -677,9 +737,13 @@ impl<'a> Parser<'a> {
                 
                 let mut alt_stmts = Vec::new();
                 while self.current_token != Token::RBrace && self.current_token != Token::Eof {
+                    let prev_token = self.current_token.clone();
                     if let Some(stmt) = self.parse_statement() {
                         alt_stmts.push(stmt);
                     }
+                    self.advance_after_statement(&prev_token);
+                }
+                if self.current_token == Token::RBrace {
                     self.next_token();
                 }
                 alternative = Some(alt_stmts);
@@ -766,15 +830,15 @@ impl<'a> Parser<'a> {
 
         let mut body = Vec::new();
         while self.current_token != Token::RBrace && self.current_token != Token::Eof {
+            let prev_token = self.current_token.clone();
             if let Some(stmt) = self.parse_statement() {
                 body.push(stmt);
             }
-            // Only advance if we haven't hit the closing brace or a statement-starting token
-            if self.current_token != Token::RBrace && !self.is_statement_start() {
-                self.next_token();
-            }
+            self.advance_after_statement(&prev_token);
         }
-
+        if self.current_token == Token::RBrace {
+            self.next_token();
+        }
         Some(Statement::FunctionDeclaration {
             is_pub,
             name,
@@ -810,12 +874,15 @@ impl<'a> Parser<'a> {
 
         let mut body = Vec::new();
         while self.current_token != Token::RBrace && self.current_token != Token::Eof {
+            let prev_token = self.current_token.clone();
             if let Some(stmt) = self.parse_statement() {
                 body.push(stmt);
             }
+            self.advance_after_statement(&prev_token);
+        }
+        if self.current_token == Token::RBrace {
             self.next_token();
         }
-
         Some(Statement::TestDeclaration {
             name,
             body,
@@ -1021,20 +1088,28 @@ impl<'a> Parser<'a> {
                 self.next_token(); // consume the number
                 Expression::Number(n)
             }
-            Token::StringLiteral(s) => Expression::StringLiteral(s.clone()),
+            Token::StringLiteral(s) => {
+                let expr = Expression::StringLiteral(s.clone());
+                self.next_token();
+                expr
+            }
             Token::Tensor => {
                 if self.peek_token != Token::LBracket { return None; }
                 self.next_token(); // move to '['
                 self.next_token(); // move past '['
                 
                 let mut dimensions = Vec::new();
+                self.parsing_tensor_dims = true;
                 while self.current_token != Token::RBracket && self.current_token != Token::Eof {
                     if let Some(dim) = self.parse_expression() {
                         dimensions.push(dim);
                     }
-                    if self.peek_token == Token::Comma {
-                        self.next_token(); // move to ','
+                    if self.current_token == Token::Comma {
+                        self.next_token(); // consume ','
                     }
+                }
+                self.parsing_tensor_dims = false;
+                if self.current_token == Token::RBracket {
                     self.next_token();
                 }
                 Expression::TensorDefinition { dimensions }
@@ -1047,13 +1122,35 @@ impl<'a> Parser<'a> {
                 }
                 expr
             }
+            Token::AtSign => {
+                if let Token::Identifier(ref id) = self.peek_token {
+                    if id == "nvme_dma_map" {
+                        self.next_token(); // move to 'nvme_dma_map'
+                        self.next_token(); // move to '('
+                        if self.current_token != Token::LParen { return None; }
+                        self.next_token(); // move past '('
+                        let path = self.parse_expression()?;
+                        if self.current_token != Token::Comma { return None; }
+                        self.next_token(); // move past ','
+                        let size = self.parse_expression()?;
+                        if self.current_token != Token::RParen { return None; }
+                        self.next_token(); // move past ')'
+                        
+                        return Some(Expression::NvmeDmaMap {
+                            path: Box::new(path),
+                            size: Box::new(size),
+                        });
+                    }
+                }
+                return None;
+            }
             _ => return None,
         };
 
         while match self.peek_token {
             Token::Plus | Token::Minus | Token::Star | Token::Slash | Token::Assign | 
             Token::LessThan | Token::Equal | Token::Question | Token::LessEqual |
-            Token::GreaterEqual |
+            Token::GreaterEqual | Token::AtSign |
             Token::BitShiftLeft | Token::BitShiftRight | Token::BitwiseAnd | Token::Pipe | Token::Dot | Token::LBracket => true,
             Token::GreaterThan => !self.parsing_tensor_dims,
             _ => false,

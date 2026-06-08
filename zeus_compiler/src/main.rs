@@ -11,6 +11,8 @@ mod mlir_codegen;
 mod formatter;
 pub mod vm;
 pub mod comptime;
+mod enforcer;
+mod hardware_matrix;
 
 use ast::Statement;
 use lexer::Lexer;
@@ -48,16 +50,25 @@ fn main() {
             let mut cross_target = None;
             let mut disable_adaptive = false;
             let mut export_mutation_log = false;
+            let mut arch_blueprint = None;
             for arg in &args[2..] {
                 if arg == "--mlir" { mlir = true; }
                 else if arg.starts_with("--target=") {
                     cross_target = Some(arg.trim_start_matches("--target=").to_string());
                 }
+                else if arg.starts_with("--arch=") {
+                    let arch_file = arg.trim_start_matches("--arch=");
+                    arch_blueprint = crate::hardware_matrix::HardwareBlueprint::load_from_file(arch_file);
+                    if let Some(ref bp) = arch_blueprint {
+                        println!(" \x1b[35m🌌 Ingesting Futuristic Hardware Blueprint:\x1b[0m {}", bp.arch_name);
+                        println!("    -> Registers: {}, SIMD Width: {}, Quantum: {}", bp.register_count, bp.simd_width, bp.is_quantum);
+                    }
+                }
                 else if arg == "--disable-adaptive" { disable_adaptive = true; }
                 else if arg == "--export-mutation-log" { export_mutation_log = true; }
                 else { target = arg; }
             }
-            build_project(target, false, mlir, cross_target, disable_adaptive, export_mutation_log);
+            build_project(target, false, mlir, cross_target, disable_adaptive, export_mutation_log, arch_blueprint);
         }
         "run" => {
             let mut target = "src/main.zs";
@@ -74,7 +85,7 @@ fn main() {
                 else if arg == "--export-mutation-log" { export_mutation_log = true; }
                 else { target = arg; }
             }
-            build_project(target, true, mlir, cross_target, disable_adaptive, export_mutation_log);
+            build_project(target, true, mlir, cross_target, disable_adaptive, export_mutation_log, None);
         }
         "lsp" => {
             lsp::run_lsp();
@@ -107,7 +118,7 @@ fn main() {
         _ => {
             // Legacy fallback for `zeus_compiler file.zs`
             if command.ends_with(".zs") {
-                build_project(command, false, false, None, false, false);
+                build_project(command, false, false, None, false, false, None);
             } else {
                 print_usage();
                 std::process::exit(1);
@@ -180,7 +191,7 @@ fn init_project(name: &str) {
     println!("  cargo run -- build"); // Because right now zeus is compiled with cargo
 }
 
-fn build_project(source_path: &str, run_after: bool, mlir_mode: bool, cross_target: Option<String>, disable_adaptive: bool, export_mutation_log: bool) {
+fn build_project(source_path: &str, run_after: bool, mlir_mode: bool, cross_target: Option<String>, disable_adaptive: bool, export_mutation_log: bool, arch_blueprint: Option<crate::hardware_matrix::HardwareBlueprint>) {
     let start_total = Instant::now();
     
     println!(" \x1b[1;36m[ZEUS BUILD]\x1b[0m Compiling \x1b[32m{}\x1b[0m", source_path);
@@ -199,6 +210,14 @@ fn build_project(source_path: &str, run_after: bool, mlir_mode: bool, cross_targ
     let lexer = Lexer::new(&input);
     let mut parser = Parser::new(lexer);
     let mut program = parser.parse_program();
+    if !parser.errors().is_empty() {
+        println!("\n\x1b[31m[ZEUS COMPILATION ABORTED]\x1b[0m Syntax Error");
+        for err in parser.errors() {
+            eprintln!("  {}", err);
+        }
+        std::process::exit(1);
+    }
+    println!("{:#?}", program);
     
     // Resolve Imports (The "Truth-Based" Standard Library Expansion)
     let source_dir = Path::new(source_path).parent().unwrap_or(Path::new(""));
@@ -284,6 +303,9 @@ fn build_project(source_path: &str, run_after: bool, mlir_mode: bool, cross_targ
         c_codegen.set_config(disable_adaptive, export_mutation_log);
         let c_source = c_codegen.generate_source(&program);
         let c_header = c_codegen.generate_header(&program);
+
+        // Vector 2: The Anti-Bloat Enforcer
+        crate::enforcer::enforce_zero_bloat(&c_source);
 
         let c_path = format!("{}.c", base_name);
         let h_path = format!("{}.h", base_name);
@@ -408,11 +430,11 @@ fn strike_project() {
         let lexer = crate::lexer::Lexer::new(&input);
         let mut parser = crate::parser::Parser::new(lexer);
         let program = parser.parse_program();
-        
         if !parser.errors().is_empty() {
             println!("  \x1b[33m⚠\x1b[0m  Skipping {} (parse errors)", path);
             continue;
         }
+        eprintln!("{:#?}", program);
         
         let formatted = crate::formatter::Formatter::format(&program);
         let after_lines = formatted.lines().count();

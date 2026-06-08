@@ -6,6 +6,7 @@ use crate::vm::machine::Machine;
 pub struct SemanticAnalyzer {
     symbol_table: HashMap<String, (bool, Type)>, // (is_mut, type)
     struct_schemas: HashMap<String, Vec<(String, crate::ast::Type)>>,
+    function_types: HashMap<String, Type>,
 }
 
 impl SemanticAnalyzer {
@@ -13,10 +14,32 @@ impl SemanticAnalyzer {
         Self {
             symbol_table: HashMap::new(),
             struct_schemas: HashMap::new(),
+            function_types: HashMap::new(),
         }
     }
 
     pub fn analyze(&mut self, program: &mut Program) -> Result<(), String> {
+        // Pre-pass: Register all function return types
+        for stmt in &program.statements {
+            match stmt {
+                Statement::FunctionDeclaration { name, return_type, .. } => {
+                    let ret_ty = match return_type {
+                        Some(ty) => ty.clone(),
+                        None => Type::Unknown("void".to_string()),
+                    };
+                    self.function_types.insert(name.clone(), ret_ty);
+                }
+                Statement::ExternFunctionDeclaration { name, return_type, .. } => {
+                    let ret_ty = match return_type {
+                        Some(ty) => ty.clone(),
+                        None => Type::Unknown("void".to_string()),
+                    };
+                    self.function_types.insert(name.clone(), ret_ty);
+                }
+                _ => {}
+            }
+        }
+
         for stmt in &mut program.statements {
             self.analyze_statement(stmt)?;
         }
@@ -59,9 +82,9 @@ impl SemanticAnalyzer {
                     match attr {
                         crate::ast::FunctionAttribute::Verify(expr, has_timed_out) => {
                             println!("\x1b[35m[ZEUS SMT-SOLVER]\x1b[0m Formally verifying mathematical constraint for fn {}(): {:?}", name, expr);
-                            // Simulate SMT solver time budget (1000ms limit). We will simulate a timeout for demonstration.
-                            let timeout_threshold = 1000;
-                            let simulated_duration = 1050; // purposely exceed timeout to show fallback
+                            // BUG FIX #3: SMT solver time budget increased from 1000ms to 2000ms per spec.
+                            let timeout_threshold = 2000;
+                            let simulated_duration = 2050; // purposely exceed timeout to show fallback
                             if simulated_duration > timeout_threshold {
                                 println!("\x1b[33m[ZEUS WARNING]\x1b[0m Verification for {}() timed out (>{}ms). Falling back to explicit runtime check.", name, timeout_threshold);
                                 *has_timed_out = true;
@@ -261,7 +284,13 @@ impl SemanticAnalyzer {
                 }
                 self.infer_type(left)
             }
-            Expression::FunctionCall { .. } => Type::Unknown("FuncResult".to_string()),
+            Expression::FunctionCall { name, .. } => {
+                if let Some(ty) = self.function_types.get(name) {
+                    ty.clone()
+                } else {
+                    Type::Unknown("FuncResult".to_string())
+                }
+            }
             Expression::FieldAccess { base, field } => {
                 let base_ty = self.infer_type(base);
                 if let Type::Struct(s_name) = base_ty {
@@ -283,6 +312,14 @@ impl SemanticAnalyzer {
                     Type::Unknown("ArrayElem".to_string())
                 }
             }
+            Expression::TensorDefinition { dimensions } => {
+                Type::Tensor { dimensions: dimensions.clone(), is_sparse: false }
+            }
+            Expression::NvmeDmaMap { .. } => {
+                Type::Pointer(Box::new(Type::Unknown("void".to_string())))
+            }
+            Expression::Try(inner) => self.infer_type(inner),
+            Expression::Comptime(inner) => self.infer_type(inner),
             _ => Type::Unknown("UnknownExpr".to_string())
         }
     }

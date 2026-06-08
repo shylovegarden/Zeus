@@ -1,4 +1,39 @@
-*.log
+# Zeus generated artifacts
+*.c
+*.h
+*.mlir
 *.o
-*.exe
+*.log
+
+# Binaries
+ai_inference
+dummy_test
+error_test
+firmware_io_test
+hello_world
+nvme_test
+phoenix_app
+security_test
+test_all_features
+test_comprehensive
+test_flags
+test_native_parallel
+test_parallel
+test_parallel_perf
+test_secret
+test_simple
+test_verify_fail
+test_verify_final
+test_verify_var_final
+domain_capture_test
+dynamic_heap_error
+dynamic_heap_error3
+native_engine
+phoenix_benchmark
+
+# Rust / Cargo
 target/
+Cargo.lock
+
+# Secret architecture blueprints
+*.zeus_arch

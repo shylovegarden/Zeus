@@ -327,8 +327,11 @@ impl Formatter {
             Expression::Try(expr) => {
                 format!("{}?", self.format_expression(expr))
             }
-            Expression::Comptime(expr) => {
-                format!("comptime({})", self.format_expression(expr))
+            Expression::Comptime(inner) => {
+                format!("comptime {}", self.format_expression(inner))
+            }
+            Expression::NvmeDmaMap { path, size } => {
+                format!("@nvme_dma_map({}, {})", self.format_expression(path), self.format_expression(size))
             }
         }
     }

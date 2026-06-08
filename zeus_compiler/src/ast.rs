@@ -142,4 +142,8 @@ pub enum Expression {
     },
     Try(Box<Expression>),
     Comptime(Box<Expression>),
+    NvmeDmaMap {
+        path: Box<Expression>,
+        size: Box<Expression>,
+    },
 }
