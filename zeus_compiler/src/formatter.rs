@@ -324,6 +324,11 @@ impl Formatter {
                     self.format_expression(index)
                 )
             }
+            Expression::OramAccess { base, index } => {
+                let base_str = self.format_expression(base);
+                let index_str = self.format_expression(index);
+                format!("{}[{}] /* ORAM */", base_str, index_str)
+            }
             Expression::Try(expr) => {
                 format!("{}?", self.format_expression(expr))
             }

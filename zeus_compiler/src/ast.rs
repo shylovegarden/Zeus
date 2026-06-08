@@ -146,4 +146,8 @@ pub enum Expression {
         path: Box<Expression>,
         size: Box<Expression>,
     },
+    OramAccess {
+        base: Box<Expression>,
+        index: Box<Expression>,
+    },
 }

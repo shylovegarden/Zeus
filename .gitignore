@@ -30,6 +30,18 @@ dynamic_heap_error
 dynamic_heap_error3
 native_engine
 phoenix_benchmark
+enclave_test
+fuzz_test
+io_test
+iommu_test
+oram_test
+side_channel_test
+zeus_compiler/enclave_test
+zeus_compiler/fuzz_test
+zeus_compiler/io_test
+zeus_compiler/iommu_test
+zeus_compiler/oram_test
+zeus_compiler/side_channel_test
 
 # Rust / Cargo
 target/

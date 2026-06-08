@@ -127,6 +127,7 @@ impl SemanticAnalyzer {
                 }
             }
             Statement::TargetBlock { statements, .. } 
+            | Statement::EnclaveBlock { statements }
             | Statement::ProofBlock { statements } => {
                 for s in statements {
                     self.analyze_statement(s)?;
@@ -244,6 +245,10 @@ impl SemanticAnalyzer {
                 self.analyze_expression(base)?;
                 self.analyze_expression(index)?;
             }
+            Expression::OramAccess { base, index } => {
+                self.analyze_expression(base)?;
+                self.analyze_expression(index)?;
+            }
             Expression::Comptime(inner) => {
                 // Compile the inner expression
                 let mut compiler = BytecodeCompiler::new();
@@ -293,23 +298,35 @@ impl SemanticAnalyzer {
             }
             Expression::FieldAccess { base, field } => {
                 let base_ty = self.infer_type(base);
-                if let Type::Struct(s_name) = base_ty {
-                    if let Some(fields) = self.struct_schemas.get(&s_name) {
-                        for (f_name, f_ty) in fields {
-                            if f_name == field {
-                                return f_ty.clone();
+                if let Type::Struct(struct_name) = base_ty.clone() {
+                    if let Some(fields) = self.struct_schemas.get(&struct_name) {
+                        for (fname, ftype) in fields {
+                            if fname == field {
+                                return ftype.clone();
                             }
                         }
                     }
+                } else if let Type::Tensor { .. } = base_ty {
+                    if field == "data" {
+                        return Type::Array(Box::new(Type::F64), Box::new(crate::ast::Expression::Number(0.0)));
+                    }
                 }
-                Type::Unknown(field.clone())
+                Type::Unknown(format!("Field_{}", field))
             }
             Expression::IndexAccess { base, .. } => {
                 let base_ty = self.infer_type(base);
-                if let Type::Array(inner, _) = base_ty {
-                    *inner
-                } else {
-                    Type::Unknown("ArrayElem".to_string())
+                match base_ty {
+                    Type::Array(inner, _) => *inner,
+                    Type::Tensor { .. } => Type::F64,
+                    _ => Type::Unknown("ArrayElem".to_string())
+                }
+            }
+            Expression::OramAccess { base, .. } => {
+                let base_ty = self.infer_type(base);
+                match base_ty {
+                    Type::Array(inner, _) => *inner,
+                    Type::Tensor { .. } => Type::F64,
+                    _ => Type::Unknown("ArrayElem".to_string())
                 }
             }
             Expression::TensorDefinition { dimensions } => {
