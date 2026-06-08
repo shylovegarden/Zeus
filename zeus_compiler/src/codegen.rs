@@ -187,7 +187,7 @@ impl CCodegen {
         source.push_str("} zeus_fiber_t;\n\n");
 
         // --- Arena allocator ---
-        source.push_str("#define ZEUS_ARENA_SIZE (1024 * 1024 * 64)\n");
+        source.push_str("#define ZEUS_ARENA_SIZE (1024 * 1024 * 256)\n");
         source.push_str("static char* zeus_arena_heap;\n");
         source.push_str("static volatile size_t* zeus_arena_offset;\n");
         source.push_str("static zeus_fiber_t* volatile* __zeus_active_fibers;\n");
@@ -483,7 +483,11 @@ impl CCodegen {
                 let mut c_struct = format!("{}typedef struct {} {{\n", pad, name);
                 for (f_name, f_type) in fields {
                     if let crate::ast::Type::Array(base, size) = f_type {
-                        let size_str = self.generate_expression(size);
+                        let size_str = if let Expression::Number(n) = &**size {
+                            format!("{}", *n as u64)
+                        } else {
+                            self.generate_expression(size)
+                        };
                         c_struct.push_str(&format!("{}    {} {}[{}];\n", pad, self.type_to_c(&Some(*(base.clone()))), f_name, size_str));
                     } else {
                         c_struct.push_str(&format!("{}    {} {};\n", pad, self.type_to_c(&Some(f_type.clone())), f_name));
@@ -995,8 +999,8 @@ impl CCodegen {
                                         
                                         if let Some(fields) = self.struct_schemas.borrow().get(struct_name) {
                                             for (f_name, _) in fields {
-                                                block.push_str(&format!("{}.{} = {}_{}[{}]; ", temp_name, f_name, arr_name, f_name, idx_c));
-                                                writes_back.push(format!("{}_{}[{}] = {}.{}; ", arr_name, f_name, idx_c, temp_name, f_name));
+                                                block.push_str(&format!("{}.{} = {}_{}[(size_t)({})]; ", temp_name, f_name, arr_name, f_name, idx_c));
+                                                writes_back.push(format!("{}_{}[(size_t)({})] = {}.{}; ", arr_name, f_name, idx_c, temp_name, f_name));
                                             }
                                         }
                                         call_args.push(format!("&{}", temp_name));
@@ -1009,25 +1013,25 @@ impl CCodegen {
                         
                         let c_ret = self.type_to_c(ret_type);
                         if c_ret == "void" {
-                            block.push_str(&format!("size_t __phoenix_mark = zeus_arena_offset; {}({}); ", name, call_args.join(", ")));
+                            block.push_str(&format!("size_t __phoenix_mark = *zeus_arena_offset; {}({}); ", name, call_args.join(", ")));
                             for wb in writes_back {
                                 block.push_str(&wb);
                             }
-                            block.push_str("zeus_arena_offset = __phoenix_mark; })");
+                            block.push_str("*zeus_arena_offset = __phoenix_mark; })");
                         } else {
-                            block.push_str(&format!("size_t __phoenix_mark = zeus_arena_offset; {} _res = {}({}); ", c_ret, name, call_args.join(", ")));
+                            block.push_str(&format!("size_t __phoenix_mark = *zeus_arena_offset; {} _res = {}({}); ", c_ret, name, call_args.join(", ")));
                             for wb in writes_back {
                                 block.push_str(&wb);
                             }
-                            block.push_str("zeus_arena_offset = __phoenix_mark; _res; })");
+                            block.push_str("*zeus_arena_offset = __phoenix_mark; _res; })");
                         }
                         block
                     } else {
                         let c_ret = self.type_to_c(ret_type);
                         if c_ret == "void" {
-                            format!("({{ size_t __phoenix_mark = zeus_arena_offset; {}({}); zeus_arena_offset = __phoenix_mark; }})", name, args_c.join(", "))
+                            format!("({{ size_t __phoenix_mark = *zeus_arena_offset; {}({}); *zeus_arena_offset = __phoenix_mark; }})", name, args_c.join(", "))
                         } else {
-                            format!("({{ size_t __phoenix_mark = zeus_arena_offset; {} _res = {}({}); zeus_arena_offset = __phoenix_mark; _res; }})", c_ret, name, args_c.join(", "))
+                            format!("({{ size_t __phoenix_mark = *zeus_arena_offset; {} _res = {}({}); *zeus_arena_offset = __phoenix_mark; _res; }})", c_ret, name, args_c.join(", "))
                         }
                     }
                 } else {
@@ -1046,7 +1050,7 @@ impl CCodegen {
                     if let Expression::Identifier(arr_name) = &**arr_base {
                         if self.soa_arrays.borrow().contains(arr_name) || arr_name == "particles" {
                             let idx_c = self.generate_expression(index);
-                            return format!("{}_{}[{}]", arr_name, field, idx_c);
+                            return format!("{}_{}[(size_t)({})]", arr_name, field, idx_c);
                         }
                     }
                 }
@@ -1057,7 +1061,7 @@ impl CCodegen {
                 }
             }
             Expression::IndexAccess { base, index } => {
-                format!("{}[{}]", self.generate_expression(base), self.generate_expression(index))
+                format!("{}[(size_t)({})]", self.generate_expression(base), self.generate_expression(index))
             }
             Expression::OramAccess { base, index, bound } => {
                 let b = self.generate_expression(base);
@@ -1331,6 +1335,14 @@ impl CCodegen {
             Expression::Try(inner) | Expression::Comptime(inner) => {
                 self.find_referenced_in_expr(inner, iterator, local_vars, referenced);
             }
+            Expression::OramAccess { base, index, .. } => {
+                self.find_referenced_in_expr(base, iterator, local_vars, referenced);
+                self.find_referenced_in_expr(index, iterator, local_vars, referenced);
+            }
+            Expression::NvmeDmaMap { path, size } => {
+                self.find_referenced_in_expr(path, iterator, local_vars, referenced);
+                self.find_referenced_in_expr(size, iterator, local_vars, referenced);
+            }
             _ => {}
         }
     }
@@ -1512,8 +1524,8 @@ impl CCodegen {
                                         
                                         if let Some(fields) = self.struct_schemas.borrow().get(struct_name) {
                                             for (f_name, _) in fields {
-                                                block.push_str(&format!("{}.{} = {}_{}[{}]; ", temp_name, f_name, arr_name, f_name, idx_c));
-                                                writes_back.push(format!("{}_{}[{}] = {}.{}; ", arr_name, f_name, idx_c, temp_name, f_name));
+                                                block.push_str(&format!("{}.{} = {}_{}[(size_t)({})]; ", temp_name, f_name, arr_name, f_name, idx_c));
+                                                writes_back.push(format!("{}_{}[(size_t)({})] = {}.{}; ", arr_name, f_name, idx_c, temp_name, f_name));
                                             }
                                         }
                                         call_args.push(format!("&{}", temp_name));
@@ -1526,25 +1538,25 @@ impl CCodegen {
                         
                         let c_ret = self.type_to_c(ret_type);
                         if c_ret == "void" {
-                            block.push_str(&format!("size_t __phoenix_mark = zeus_arena_offset; {}({}); ", name, call_args.join(", ")));
+                            block.push_str(&format!("size_t __phoenix_mark = *zeus_arena_offset; {}({}); ", name, call_args.join(", ")));
                             for wb in writes_back {
                                 block.push_str(&wb);
                             }
-                            block.push_str("zeus_arena_offset = __phoenix_mark; })");
+                            block.push_str("*zeus_arena_offset = __phoenix_mark; })");
                         } else {
-                            block.push_str(&format!("size_t __phoenix_mark = zeus_arena_offset; {} _res = {}({}); ", c_ret, name, call_args.join(", ")));
+                            block.push_str(&format!("size_t __phoenix_mark = *zeus_arena_offset; {} _res = {}({}); ", c_ret, name, call_args.join(", ")));
                             for wb in writes_back {
                                 block.push_str(&wb);
                             }
-                            block.push_str("zeus_arena_offset = __phoenix_mark; _res; })");
+                            block.push_str("*zeus_arena_offset = __phoenix_mark; _res; })");
                         }
                         block
                     } else {
                         let c_ret = self.type_to_c(ret_type);
                         if c_ret == "void" {
-                            format!("({{ size_t __phoenix_mark = zeus_arena_offset; {}({}); zeus_arena_offset = __phoenix_mark; }})", name, args_c.join(", "))
+                            format!("({{ size_t __phoenix_mark = *zeus_arena_offset; {}({}); *zeus_arena_offset = __phoenix_mark; }})", name, args_c.join(", "))
                         } else {
-                            format!("({{ size_t __phoenix_mark = zeus_arena_offset; {} _res = {}({}); zeus_arena_offset = __phoenix_mark; _res; }})", c_ret, name, args_c.join(", "))
+                            format!("({{ size_t __phoenix_mark = *zeus_arena_offset; {} _res = {}({}); *zeus_arena_offset = __phoenix_mark; _res; }})", c_ret, name, args_c.join(", "))
                         }
                     }
                 } else {
@@ -1563,7 +1575,7 @@ impl CCodegen {
                     if let Expression::Identifier(arr_name) = &**arr_base {
                         if self.soa_arrays.borrow().contains(arr_name) || arr_name == "particles" {
                             let idx_c = self.generate_parallel_expression(index, shared_vars, iterator);
-                            return format!("{}_{}[{}]", arr_name, field, idx_c);
+                            return format!("{}_{}[(size_t)({})]", arr_name, field, idx_c);
                         }
                     }
                 }
@@ -1574,7 +1586,7 @@ impl CCodegen {
                 }
             }
             Expression::IndexAccess { base, index } => {
-                format!("{}[{}]", self.generate_parallel_expression(base, shared_vars, iterator), self.generate_parallel_expression(index, shared_vars, iterator))
+                format!("{}[(size_t)({})]", self.generate_parallel_expression(base, shared_vars, iterator), self.generate_parallel_expression(index, shared_vars, iterator))
             }
             Expression::OramAccess { base, index, bound } => {
                 let b = self.generate_parallel_expression(base, shared_vars, iterator);

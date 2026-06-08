@@ -117,10 +117,21 @@ fn transform_expression(expr: &mut Expression) {
     // Now if it is an IndexAccess, rewrite it to OramAccess
     if replace_with_oram {
         if let Expression::IndexAccess { base, index } = expr.clone() {
-            // Very simple heuristic to find bound: fallback to 256 for cryptographic block constraints.
-            // A more advanced compiler pass would pull sizes from type declarations.
-            let bound = 256; 
-            *expr = Expression::OramAccess { base, index, bound };
+            // Only apply ORAM if the base is a FieldAccess targeting "data" (e.g. tensor.data)
+            let is_tensor_data = if let Expression::FieldAccess { field, .. } = &*base {
+                field == "data"
+            } else {
+                false
+            };
+
+            if is_tensor_data {
+                // Very simple heuristic to find bound: fallback to 256 for cryptographic block constraints.
+                // A more advanced compiler pass would pull sizes from type declarations.
+                let bound = 256; 
+                *expr = Expression::OramAccess { base, index, bound };
+            } else {
+                *expr = Expression::IndexAccess { base, index };
+            }
         }
     }
 }
