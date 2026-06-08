@@ -1,48 +1,53 @@
-# Implementation Plan: Absolute Black-Box Execution Model
+# Zeus Phase 5: The Bare-Metal OS-Bypass & Sentinel Firewall
 
-To achieve a state where an attacker physically cannot reverse-engineer, decompile, or observe the logic of a Zeus-compiled binary, we must introduce the ultimate defense: a cryptographic "Black-Box" compilation target. We will build the foundations for **Indistinguishability Obfuscation (iO)**, **Oblivious RAM (ORAM)**, and **Hardware Enclave Binding**.
+This phase will elevate Zeus from a standalone compiler into a full user-space Operating System replacement, implementing DMA storage, Sentinel runtime defenses, and cache-perfect hardware mapping.
 
 ## User Review Required
 
-> [!CAUTION]
-> Implementing mathematically perfect Indistinguishability Obfuscation (iO) incurs extreme performance overhead at runtime. 
-> To mitigate this, Zeus will only obfuscate designated `target { enclave }` blocks or secrets, rather than the entire execution space. 
-> **Question:** Do you want to start by# The Zeus Terminal Vectors: Anti-Side-Channel, Auto-Fuzz, and IOMMU
-
-We will complete the final architectural vectors of the Zeus Compiler in order: Concurrency Hardening, The AI Compiler Engine, and the Physical DMA Firewall.
+> [!WARNING]  
+> Bypassing the Kernel with NVMe DMA and Sentinel Process Forking is highly aggressive. Please review the architecture below before I begin execution.
 
 ## Proposed Changes
 
-### Vector 1: The Anti-Side-Channel Engine (Concurrency Hardening)
-- **Goal**: Neutralize Meltdown/Spectre (speculative execution) and Thermal Resonance Power Virus attacks.
-- **Files to Modify**:
-  #### [MODIFY] [codegen.rs](file:///Users/shy/Developer/ZEUS/zeus_compiler/src/codegen.rs)
-  - **Hardware Speculation Flushes**: Inject `#define zeus_speculation_flush() _mm_lfence()` into the C header and emit it inside the `main()` M:N Fiber Scheduler loop to purge transient CPU cache states on context switch.
-  - **Stochastic Core Hopping**: Add a fast PRNG (using `__rdtsc()`) inside the fiber scheduler that randomly calculates CPU core affinity and enforces it via `sched_setaffinity()` (mocked/simulated for macOS compat, or injected natively for Linux targets), forcing fibers to bounce between physical cores to disrupt thermal tracking.
+We will tackle the three pillars simultaneously by updating the `zeus_compiler`.
 
 ---
 
-### Vector 2: The Auto-Fuzz AI Synthesis Engine
-- **Goal**: Implement the `zeus build --tune` flag to train a neural network at compile-time and bake the INT4-quantized weights directly into `.rodata` for the `@adaptive` keyword.
-- **Files to Modify**:
-  #### [MODIFY] [main.rs](file:///Users/shy/Developer/ZEUS/zeus_compiler/src/main.rs)
-  - Add argument parsing for the `--tune` flag.
-  - Create a mock compiler fuzzing loop that simulates 1,000 inputs and "trains" an AST model.
-  #### [MODIFY] [codegen.rs](file:///Users/shy/Developer/ZEUS/zeus_compiler/src/codegen.rs)
-  - Allow the CGenerator to accept dynamic weight arrays from the `--tune` pass.
-  - Replace the currently static `__zeus_micro_ai_weights` array with a dynamically generated, flat, cache-aligned C-array based on the fuzzing results.
+### 1. The Bare-Metal NVMe DMA Pipeline
+We will expose the `NvmeDmaMap` compiler backend to the user via the standard library.
+
+#### [NEW] [std/zeus/dma.zs](file:///Users/shy/Developer/ZEUS/std/zeus/dma.zs)
+- Create the DMA standard library module containing `pub fn map_drive(path: String, size: f64)`.
+
+#### [MODIFY] [codegen.rs](file:///Users/shy/Developer/ZEUS/zeus_compiler/src/codegen.rs)
+- Update `NvmeDmaMap` generation to conditionally switch between `mmap(O_DIRECT)` bare-metal access and standard `fread` depending on the presence of a `--target nvme` compiler flag.
 
 ---
 
-### Vector 3: Hardware IOMMU Segmentation (Physical DMA Firewall)
-- **Goal**: Neutralize DMA Reflection attacks where malicious PCIe devices bypass the CPU to read our static memory arenas directly.
-- **Files to Modify**:
-  #### [MODIFY] [codegen.rs](file:///Users/shy/Developer/ZEUS/zeus_compiler/src/codegen.rs)
-  - Inject a new initialization phase: `__zeus_iommu_secure_segment()`.
-  - This function will emit mock C code simulating `ioctl(VFIO_IOMMU_MAP_DMA)` to strictly bind the `__zeus_arena` physical memory pages to a specific, trusted PCIe bus/slot, locking out unauthorized DMA.
+### 2. The Phoenix Firewall (M:N Fiber Sentinel)
+We will rewrite the cooperative Fiber dispatcher inside `codegen.rs`'s `ParallelBlock` handler.
+
+#### [MODIFY] [codegen.rs](file:///Users/shy/Developer/ZEUS/zeus_compiler/src/codegen.rs)
+- **Sentinel `fork()`:** At the start of a `parallel` block, Zeus will `mmap(MAP_SHARED)` a global state array and `fork()` a hidden **Sentinel Core** process.
+- **Cycle Heartbeats:** The primary child process will dispatch the M:N workers. Each worker will ping its exact `__rdtsc()` hardware cycle count into the shared map at the top of its execution loop.
+- **The Executioner:** The Sentinel Core will infinitely poll the shared map. If `(__rdtsc() - worker_heartbeat) > 50,000,000` cycles, the Sentinel assumes the Fiber has been hit with a malicious infinite loop (DDoS payload). 
+- **The Assassination:** The Sentinel will directly overwrite the worker's queue state in shared memory, mark it as `KILLED`, and reset the `__zeus_arena_offset`, successfully vaporizing the bad payload without crashing the main Zeus process.
+
+---
+
+### 3. `.zeus_arch` Hardware Blueprints
+We will allow dynamic topological memory packing.
+
+#### [MODIFY] [main.rs](file:///Users/shy/Developer/ZEUS/zeus_compiler/src/main.rs)
+- Parse `--tune-arch=FILE` CLI argument.
+- Read a `.zeus_arch` JSON definition (e.g. `{"l1_cache_size": 65536, "num_cores": 12}`).
+
+#### [MODIFY] [codegen.rs](file:///Users/shy/Developer/ZEUS/zeus_compiler/src/codegen.rs)
+- Pass the hardware blueprint into the `CTranspilerBackend`.
+- Currently, `ParallelBlock` chunks work identically regardless of hardware (`__zeus_chunk_size = (__zeus_iters + 255) / 256`). We will dynamically emit chunking logic that aligns perfectly with the target machine's `l1_cache_size`, guaranteeing zero cache-misses for tensor calculations.
 
 ## Verification Plan
-1. **Automated Tests**:
-   - `benchmarks/side_channel_test.zs`: Verify that `_mm_lfence()` and core affinity PRNG logic are compiled correctly in the scheduler.
-   - `benchmarks/fuzz_test.zs`: Run `zeus build --tune` to verify the `.rodata` array dynamically updates with newly "trained" weights instead of static defaults.
-   - `benchmarks/iommu_test.zs`: Verify the generated C code initializes the `VFIO_IOMMU_MAP_DMA` structures correctly.
+
+### Automated Tests
+- We will build `benchmarks/phoenix_test.zs` that launches a `parallel` block. One of the fibers will intentionally trigger a malicious infinite loop (`while (1.0 == 1.0) {}`).
+- We will compile with the Sentinel enabled and verify that the Sentinel process successfully detects the deadlock, outputs `[ZEUS SENTINEL] Assassinated Deadlocked Fiber`, and allows the program to safely exit instead of hanging forever.
