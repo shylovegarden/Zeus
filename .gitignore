@@ -48,4 +48,5 @@ target/
 Cargo.lock
 
 # Secret architecture blueprints
-*.zeus_arch
+# Allow tracking of hardware blueprints
+
