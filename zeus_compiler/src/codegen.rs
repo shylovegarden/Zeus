@@ -11,6 +11,8 @@ pub struct CCodegen {
     pub disable_adaptive: bool,
     pub export_mutation_log: bool,
     pub tuned_weights: Vec<f32>,
+    pub is_target_nvme: bool,
+    pub l1_cache_size: usize,
 }
 
 impl CCodegen {
@@ -25,6 +27,8 @@ impl CCodegen {
             disable_adaptive: false,
             export_mutation_log: false,
             tuned_weights: vec![0.25f32, -0.5f32, 0.8f32, -0.1f32], // Default mock weights
+            is_target_nvme: false,
+            l1_cache_size: 32768,
         }
     }
 
@@ -32,9 +36,11 @@ impl CCodegen {
         self.tuned_weights = weights;
     }
 
-    pub fn set_config(&mut self, disable_adaptive: bool, export_mutation_log: bool) {
+    pub fn set_config(&mut self, disable_adaptive: bool, export_mutation_log: bool, is_target_nvme: bool, l1_cache_size: usize) {
         self.disable_adaptive = disable_adaptive;
         self.export_mutation_log = export_mutation_log;
+        self.is_target_nvme = is_target_nvme;
+        self.l1_cache_size = l1_cache_size;
     }
 
     fn generate_secure_wipe(&self, var: &str, pad: &str) -> String {
@@ -553,14 +559,39 @@ impl CCodegen {
                 out.push_str(&format!("{}    size_t __zeus_end = {};\n", pad, end_c));
                 out.push_str(&format!("{}    size_t __zeus_iters = __zeus_end - __zeus_start;\n", pad));
                 
-                out.push_str(&format!("{}    size_t __zeus_chunk_size = (__zeus_iters + 255) / 256;\n", pad));
-                out.push_str(&format!("{}    if (__zeus_chunk_size == 0) __zeus_chunk_size = 1;\n", pad));
+                // Dynamic topological packing using Hardware Blueprint L1 Cache Size
+                out.push_str(&format!("{}    size_t __zeus_chunk_size = {}; // Extracted from blueprint\n", pad, self.l1_cache_size));
+                out.push_str(&format!("{}    if (__zeus_chunk_size == 0) __zeus_chunk_size = 256;\n", pad));
                 out.push_str(&format!("{}    size_t __zeus_num_tasks = (__zeus_iters + __zeus_chunk_size - 1) / __zeus_chunk_size;\n", pad));
+                out.push_str(&format!("{}    if (__zeus_num_tasks == 0) __zeus_num_tasks = 1;\n", pad));
                 
                 out.push_str(&format!("{}    {}* __zeus_tasks = ({}*)__zeus_arena_alloc(sizeof({}) * __zeus_num_tasks);\n", pad, struct_name, struct_name, struct_name));
                 out.push_str(&format!("{}    zeus_fiber_t* __zeus_fibers = (zeus_fiber_t*)__zeus_arena_alloc(sizeof(zeus_fiber_t) * __zeus_num_tasks);\n", pad));
                 out.push_str(&format!("{}    ucontext_t __zeus_main_ctx;\n", pad));
                 
+                out.push_str(&format!("{}    volatile unsigned long long* __zeus_heartbeats = (volatile unsigned long long*)mmap(NULL, sizeof(unsigned long long) * __zeus_num_tasks, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANON, -1, 0);\n", pad));
+                out.push_str(&format!("{}    for (size_t t = 0; t < __zeus_num_tasks; t++) __zeus_heartbeats[t] = 0;\n", pad));
+                out.push_str(&format!("{}    pid_t __zeus_sentinel = fork();\n", pad));
+                out.push_str(&format!("{}    if (__zeus_sentinel == 0) {{\n", pad));
+                out.push_str(&format!("{}        // [ZEUS SENTINEL FIREWALL]\n", pad));
+                out.push_str(&format!("{}        while (1) {{\n", pad));
+                out.push_str(&format!("{}            int _active = 0;\n", pad));
+                out.push_str(&format!("{}            for (size_t t = 0; t < __zeus_num_tasks; t++) {{\n", pad));
+                out.push_str(&format!("{}                unsigned long long _hb = __zeus_heartbeats[t];\n", pad));
+                out.push_str(&format!("{}                if (_hb == (unsigned long long)-1) continue;\n", pad));
+                out.push_str(&format!("{}                if (_hb > 0) {{\n", pad));
+                out.push_str(&format!("{}                    _active = 1;\n", pad));
+                out.push_str(&format!("{}                    if (__rdtsc() - _hb > 50000000ULL) {{\n", pad));
+                out.push_str(&format!("{}                        fprintf(stderr, \"[ZEUS SENTINEL] Assassinated Deadlocked Fiber %zu!\\n\", t);\n", pad));
+                out.push_str(&format!("{}                        __zeus_heartbeats[t] = (unsigned long long)-1;\n", pad));
+                out.push_str(&format!("{}                    }}\n", pad));
+                out.push_str(&format!("{}                }}\n", pad));
+                out.push_str(&format!("{}            }}\n", pad));
+                out.push_str(&format!("{}            if (!_active) exit(0);\n", pad));
+                out.push_str(&format!("{}            usleep(100);\n", pad));
+                out.push_str(&format!("{}        }}\n", pad));
+                out.push_str(&format!("{}    }}\n", pad));
+
                 out.push_str(&format!("{}    int __zeus_num_workers = (int)sysconf(_SC_NPROCESSORS_ONLN);\n", pad));
                 out.push_str(&format!("{}    if (__zeus_num_workers < 1) __zeus_num_workers = 1;\n", pad));
                 out.push_str(&format!("{}    if (__zeus_num_workers > 64) __zeus_num_workers = 64;\n", pad));
@@ -577,6 +608,7 @@ impl CCodegen {
                 out.push_str(&format!("{}        if (t_end > __zeus_end) t_end = __zeus_end;\n", pad));
                 out.push_str(&format!("{}        __zeus_tasks[t].chunk_start = t_start;\n", pad));
                 out.push_str(&format!("{}        __zeus_tasks[t].chunk_end = t_end;\n", pad));
+                out.push_str(&format!("{}        __zeus_tasks[t].heartbeat = &__zeus_heartbeats[t];\n", pad));
                 for (var_name, _) in &shared_vars {
                     out.push_str(&format!("{}        __zeus_tasks[t].{} = &{};\n", pad, var_name, var_name));
                 }
@@ -607,6 +639,8 @@ impl CCodegen {
                 out.push_str(&format!("{}                }}\n", pad));
                 out.push_str(&format!("{}            }}\n", pad));
                 out.push_str(&format!("{}            if (fib) {{\n", pad));
+                out.push_str(&format!("{}                size_t _fib_idx = fib - __zeus_fibers;\n", pad));
+                out.push_str(&format!("{}                if (__zeus_heartbeats[_fib_idx] == (unsigned long long)-1) fib->is_dead = 1;\n", pad));
                 out.push_str(&format!("{}                if (!fib->is_dead) {{\n", pad));
                 out.push_str(&format!("{}                    fib->last_cycle_start = __rdtsc();\n", pad));
                 out.push_str(&format!("{}                    __zeus_active = 1;\n", pad));
@@ -1041,7 +1075,11 @@ impl CCodegen {
             Expression::NvmeDmaMap { path, size } => {
                 let p = self.generate_expression(path);
                 let s = self.generate_expression(size);
-                format!("({{\n    #ifndef O_DIRECT\n    #define O_DIRECT 0\n    #endif\n    int _fd = open({}, O_RDWR | O_DIRECT | O_SYNC);\n    if (_fd < 0) {{ perror(\"open NVMe\"); exit(1); }}\n    void* _map = mmap(NULL, {}, PROT_READ | PROT_WRITE, MAP_SHARED, _fd, 0);\n    if (_map == MAP_FAILED) {{ perror(\"mmap NVMe\"); exit(1); }}\n    _map;\n}})", p, s)
+                if self.is_target_nvme {
+                    format!("({{\n    #ifndef O_DIRECT\n    #define O_DIRECT 0\n    #endif\n    int _fd = open({}, O_RDWR | O_DIRECT | O_SYNC);\n    if (_fd < 0) {{ perror(\"open NVMe\"); exit(1); }}\n    void* _map = mmap(NULL, {}, PROT_READ | PROT_WRITE, MAP_SHARED, _fd, 0);\n    if (_map == MAP_FAILED) {{ perror(\"mmap NVMe\"); exit(1); }}\n    _map;\n}})", p, s)
+                } else {
+                    format!("({{\n    // Fallback standard POSIX I/O since --target=nvme was not provided\n    FILE* _f = fopen({}, \"r+\");\n    if (!_f) {{ perror(\"fopen fallback\"); exit(1); }}\n    void* _map = malloc({});\n    fread(_map, 1, {}, _f);\n    fclose(_f);\n    _map;\n}})", p, s, s)
+                }
             }
         }
     }
@@ -1073,6 +1111,7 @@ impl CCodegen {
                 for (var_name, var_type) in &shared_vars {
                     defs.push_str(&format!("    {}* {};\n", var_type, var_name));
                 }
+                defs.push_str("    volatile unsigned long long* heartbeat;\n");
                 defs.push_str(&format!("}} {};\n\n", struct_name));
                 
                 defs.push_str(&format!("void {}(int __zeus_lo, int __zeus_hi) {{\n", worker_name));
@@ -1080,7 +1119,9 @@ impl CCodegen {
                 defs.push_str(&format!("    {}* __zeus_data = ({}*)__zeus_ctx;\n", struct_name, struct_name));
                 defs.push_str("    size_t __zeus_start = __zeus_data->chunk_start;\n");
                 defs.push_str("    size_t __zeus_end = __zeus_data->chunk_end;\n");
+                defs.push_str("    volatile unsigned long long* __zeus_heartbeat = __zeus_data->heartbeat;\n");
                 defs.push_str(&format!("    for (size_t {} = __zeus_start; {} < __zeus_end; {}++) {{\n", iterator, iterator, iterator));
+                defs.push_str("        if (__zeus_heartbeat) *__zeus_heartbeat = __rdtsc();\n");
                 
                 for s in statements {
                     let stmt_code = self.generate_parallel_statement(s, 2, &shared_vars, iterator);
