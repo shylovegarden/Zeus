@@ -996,7 +996,18 @@ fn build_project(source_path: &str, run_after: bool, mlir_mode: bool, cross_targ
     let mut resolved_statements = Vec::new();
     for stmt in program.statements {
         if let Statement::Import(path) = stmt {
-            let std_path = source_dir.join(format!("std/{}.zs", path.replace(".", "/")));
+            let mut std_path = source_dir.join(format!("std/{}.zs", path.replace(".", "/")));
+            if !std_path.exists() {
+                if let Ok(cwd) = std::env::current_dir() {
+                    let alt_path = cwd.join(format!("std/{}.zs", path.replace(".", "/")));
+                    if alt_path.exists() {
+                        std_path = alt_path;
+                    } else if let Some(p) = cwd.parent() {
+                        let alt_path2 = p.join(format!("std/{}.zs", path.replace(".", "/")));
+                        if alt_path2.exists() { std_path = alt_path2; }
+                    }
+                }
+            }
             if std_path.exists() {
                 let std_input = fs::read_to_string(&std_path).unwrap();
                 let std_lexer = Lexer::new(&std_input);
@@ -1076,8 +1087,12 @@ fn build_project(source_path: &str, run_after: bool, mlir_mode: bool, cross_targ
         println!(" \x1b[36m⚙️  Emitting MLIR Middle-End\x1b[0m               [ \x1b[1;37m{:>6.0}µs\x1b[0m ] [ \x1b[32m██████████\x1b[0m ] 100%", d_codegen.as_micros());
     } else {
         let mut c_codegen = CCodegen::new(base_name);
+        
+        let is_nvme = cross_target.as_deref() == Some("nvme");
+        let l1_cache = _arch_blueprint.as_ref().map(|b| b.l1_cache_size).unwrap_or(32768);
+        
         // Pass configuration
-        c_codegen.set_config(disable_adaptive, export_mutation_log);
+        c_codegen.set_config(disable_adaptive, export_mutation_log, is_nvme, l1_cache);
         
         let mut tuned_weights = vec![0.25f32, -0.5f32, 0.8f32, -0.1f32];
         if tune {
@@ -1466,7 +1481,18 @@ fn verify_project(source_path: &str, is_medical_mode: bool) {
     let mut resolved_statements = Vec::new();
     for stmt in program.statements {
         if let Statement::Import(path) = stmt {
-            let std_path = source_dir.join(format!("std/{}.zs", path.replace(".", "/")));
+            let mut std_path = source_dir.join(format!("std/{}.zs", path.replace(".", "/")));
+            if !std_path.exists() {
+                if let Ok(cwd) = std::env::current_dir() {
+                    let alt_path = cwd.join(format!("std/{}.zs", path.replace(".", "/")));
+                    if alt_path.exists() {
+                        std_path = alt_path;
+                    } else if let Some(p) = cwd.parent() {
+                        let alt_path2 = p.join(format!("std/{}.zs", path.replace(".", "/")));
+                        if alt_path2.exists() { std_path = alt_path2; }
+                    }
+                }
+            }
             if std_path.exists() {
                 let std_input = fs::read_to_string(&std_path).unwrap();
                 let std_lexer = Lexer::new(&std_input);

@@ -1,20 +1,11 @@
-# Task List: The Zeus Terminal Vectors
+# Task List: Zeus Execution Hardening
 
-## Vector 1: The Anti-Side-Channel Engine (Concurrency Hardening)
-- [x] Inject `#define zeus_speculation_flush() _mm_lfence()` in `codegen.rs`.
-- [x] Add `zeus_speculation_flush()` inside the fiber scheduler context switch loop.
-- [x] Implement Stochastic Core Hopping using `__rdtsc()` and `sched_setaffinity()` in the fiber loop.
-- [x] Create `benchmarks/side_channel_test.zs` and verify C output.
-
-## Vector 2: The Auto-Fuzz AI Synthesis Engine
-- [x] Update `main.rs` to parse the `--tune` flag.
-- [x] Add the Auto-Fuzz Synthesis Loop to `main.rs` right before `CCodegen` invocation.
-- [x] Modify `CCodegen` to accept an array of `tuned_weights`.
-- [x] Emit the quantized AI weights directly into the `.rodata` section in the generated C code.
-- [x] Create `benchmarks/fuzz_test.zs` and verify execution with `--tune`. output.
-
-## Vector 3: Hardware IOMMU Segmentation
-- [x] Inject `__zeus_iommu_secure_segment()` stub in `codegen.rs`.
-- [x] Configure the stub to simulate opening `/dev/vfio/vfio` to bind the static memory regions and prevent DMA.
-- [x] Ensure `__zeus_iommu_secure_segment()` is called upon startup (`main()`).
-- [x] Create `benchmarks/iommu_test.zs` and verify C output.
+## Phase 5: The Bare-Metal OS-Bypass & Sentinel Firewall
+- [x] Create `std/zeus/dma.zs` and add NVMe abstraction.
+- [x] Update `zeus_compiler/src/main.rs` to accept `--target nvme` flag.
+- [x] Update `zeus_compiler/src/codegen.rs` to emit `mmap(O_DIRECT)` for NVMe targets.
+- [x] Modify `zeus_compiler/src/codegen.rs` to inject Phoenix Firewall `fork()` Sentinel into `ParallelBlock`.
+- [x] Add `__rdtsc()` heartbeats and DDoS assassination logic to Fiber execution loop.
+- [x] Update `zeus_compiler/src/main.rs` to parse `--tune-arch` and read `.zeus_arch` JSON files.
+- [x] Pass `HardwareBlueprint` to `CTranspilerBackend` and emit optimal L1 Cache chunks for `ParallelBlock`.
+- [x] Build and run `benchmarks/phoenix_test.zs` to test Sentinel assassination of an infinite loop.

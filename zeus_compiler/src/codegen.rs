@@ -52,9 +52,11 @@ impl CCodegen {
         self.tuned_weights = weights;
     }
 
-    pub fn set_config(&mut self, disable_adaptive: bool, export_mutation_log: bool) {
+    pub fn set_config(&mut self, disable_adaptive: bool, export_mutation_log: bool, is_target_nvme: bool, l1_cache_size: usize) {
         self.disable_adaptive = disable_adaptive;
         self.export_mutation_log = export_mutation_log;
+        self.is_target_nvme = is_target_nvme;
+        self.l1_cache_size = l1_cache_size;
     }
 
     fn generate_secure_wipe(&self, var: &str, pad: &str) -> String {
@@ -279,7 +281,7 @@ impl CCodegen {
         source.push_str("} zeus_fiber_t;\n\n");
 
         // --- Arena allocator ---
-        source.push_str("#define ZEUS_ARENA_SIZE (1024 * 1024 * 64)\n");
+        source.push_str("#define ZEUS_ARENA_SIZE (1024 * 1024 * 256)\n");
         source.push_str("static char* zeus_arena_heap;\n");
         source.push_str("static volatile size_t* zeus_arena_offset;\n");
         source.push_str("static zeus_fiber_t* volatile* __zeus_active_fibers;\n");
@@ -675,7 +677,11 @@ impl CCodegen {
                 let mut c_struct = format!("{}typedef struct {} {{\n", pad, name);
                 for (f_name, f_type) in fields {
                     if let crate::ast::Type::Array(base, size) = f_type {
-                        let size_str = self.generate_expression(size);
+                        let size_str = if let Expression::Number(n) = &**size {
+                            format!("{}", *n as u64)
+                        } else {
+                            self.generate_expression(size)
+                        };
                         c_struct.push_str(&format!("{}    {} {}[{}];\n", pad, self.type_to_c(&Some(*(base.clone()))), f_name, size_str));
                     } else {
                         c_struct.push_str(&format!("{}    {} {};\n", pad, self.type_to_c(&Some(f_type.clone())), f_name));
@@ -914,6 +920,8 @@ impl CCodegen {
                 self.secret_vars.borrow_mut().push(Vec::new());
                 self.pending_ensures.borrow_mut().clear();
 
+                let mut is_adaptive = false;
+
                 for attr in attributes {
                     match attr {
                         crate::ast::FunctionAttribute::Verify(expr, has_timed_out) => {
@@ -972,6 +980,16 @@ impl CCodegen {
                 }
 
                 for s in body {
+                    if is_adaptive {
+                        out.push_str(&format!("{}    {{\n", pad));
+                        out.push_str(&format!("{}        unsigned short _zeus_bit = ((_zeus_lfsr >> 0) ^ (_zeus_lfsr >> 2) ^ (_zeus_lfsr >> 3) ^ (_zeus_lfsr >> 5)) & 1;\n", pad));
+                        out.push_str(&format!("{}        _zeus_lfsr = (_zeus_lfsr >> 1) | (_zeus_bit << 15);\n", pad));
+                        out.push_str(&format!("{}        if (_zeus_lfsr % 2 == 0) {{\n", pad));
+                        out.push_str(&format!("{}            volatile int _zeus_noise = 0;\n", pad));
+                        out.push_str(&format!("{}            for (int _n = 0; _n < (_zeus_lfsr % 16); _n++) _zeus_noise += _n;\n", pad));
+                        out.push_str(&format!("{}        }}\n", pad));
+                        out.push_str(&format!("{}    }}\n", pad));
+                    }
                     out.push_str(&self.generate_statement(s, indent + 1));
                 }
                 let scope_vars = self.secret_vars.borrow_mut().pop().unwrap();
@@ -1231,8 +1249,8 @@ impl CCodegen {
                                         block.push_str(&format!("{} {}; ", struct_name, temp_name));
                                         if let Some(fields) = self.struct_schemas.borrow().get(struct_name) {
                                             for (f_name, _) in fields {
-                                                block.push_str(&format!("{}.{} = {}_{}[{}]; ", temp_name, f_name, arr_name, f_name, idx_c));
-                                                writes_back.push(format!("{}_{}[{}] = {}.{}; ", arr_name, f_name, idx_c, temp_name, f_name));
+                                                block.push_str(&format!("{}.{} = {}_{}[(size_t)({})]; ", temp_name, f_name, arr_name, f_name, idx_c));
+                                                writes_back.push(format!("{}_{}[(size_t)({})] = {}.{}; ", arr_name, f_name, idx_c, temp_name, f_name));
                                             }
                                         }
                                         call_args.push(format!("&{}", temp_name));
@@ -1257,9 +1275,9 @@ impl CCodegen {
                     } else {
                         let c_ret = self.type_to_c(ret_type);
                         if c_ret == "void" {
-                            format!("({{ size_t __phoenix_mark = zeus_arena_offset; {}({}); zeus_arena_offset = __phoenix_mark; }})", name, args_c.join(", "))
+                            format!("({{ size_t __phoenix_mark = *zeus_arena_offset; {}({}); *zeus_arena_offset = __phoenix_mark; }})", name, args_c.join(", "))
                         } else {
-                            format!("({{ size_t __phoenix_mark = zeus_arena_offset; {} _res = {}({}); zeus_arena_offset = __phoenix_mark; _res; }})", c_ret, name, args_c.join(", "))
+                            format!("({{ size_t __phoenix_mark = *zeus_arena_offset; {} _res = {}({}); *zeus_arena_offset = __phoenix_mark; _res; }})", c_ret, name, args_c.join(", "))
                         }
                     }
                 } else {
@@ -1304,7 +1322,7 @@ impl CCodegen {
             Expression::IndexAccess { base, index } => {
                 format!("{}[(size_t)({})]", self.generate_expression(base), self.generate_expression(index))
             }
-            Expression::OramAccess { base, index } => {
+            Expression::OramAccess { base, index, bound } => {
                 let b = self.generate_expression(base);
                 let i = self.generate_expression(index);
                 // ORAM Dummy Sequence: Flattening memory access to disguise hardware bus activity
@@ -1325,7 +1343,11 @@ impl CCodegen {
             Expression::NvmeDmaMap { path, size } => {
                 let p = self.generate_expression(path);
                 let s = self.generate_expression(size);
-                format!("({{\n    #ifndef O_DIRECT\n    #define O_DIRECT 0\n    #endif\n    int _fd = open({}, O_RDWR | O_DIRECT | O_SYNC);\n    if (_fd < 0) {{ perror(\"open NVMe\"); exit(1); }}\n    void* _map = mmap(NULL, {}, PROT_READ | PROT_WRITE, MAP_SHARED, _fd, 0);\n    if (_map == MAP_FAILED) {{ perror(\"mmap NVMe\"); exit(1); }}\n    _map;\n}})", p, s)
+                if self.is_target_nvme {
+                    format!("({{\n    #ifndef O_DIRECT\n    #define O_DIRECT 0\n    #endif\n    int _fd = open({}, O_RDWR | O_DIRECT | O_SYNC);\n    if (_fd < 0) {{ perror(\"open NVMe\"); exit(1); }}\n    void* _map = mmap(NULL, {}, PROT_READ | PROT_WRITE, MAP_SHARED, _fd, 0);\n    if (_map == MAP_FAILED) {{ perror(\"mmap NVMe\"); exit(1); }}\n    _map;\n}})", p, s)
+                } else {
+                    format!("({{\n    // Fallback standard POSIX I/O since --target=nvme was not provided\n    FILE* _f = fopen({}, \"r+\");\n    if (!_f) {{ perror(\"fopen fallback\"); exit(1); }}\n    void* _map = malloc({});\n    fread(_map, 1, {}, _f);\n    fclose(_f);\n    _map;\n}})", p, s, s)
+                }
             }
             Expression::ArrayLiteral(elems) => {
                 let parts: Vec<String> = elems.iter().map(|e| self.generate_expression(e)).collect();
@@ -1361,6 +1383,7 @@ impl CCodegen {
                 for (var_name, var_type) in &shared_vars {
                     defs.push_str(&format!("    {}* {};\n", var_type, var_name));
                 }
+                defs.push_str("    volatile unsigned long long* heartbeat;\n");
                 defs.push_str(&format!("}} {};\n\n", struct_name));
                 
                 defs.push_str(&format!("void {}(void* __zeus_ctx, size_t __zeus_start, size_t __zeus_end) {{\n", worker_name));
@@ -1369,6 +1392,7 @@ impl CCodegen {
                 // Hint the auto-vectorizer: no loop-carried dependencies in this parallel body
                 defs.push_str("    #pragma GCC ivdep\n");
                 defs.push_str(&format!("    for (size_t {} = __zeus_start; {} < __zeus_end; {}++) {{\n", iterator, iterator, iterator));
+                defs.push_str("        if (__zeus_heartbeat) *__zeus_heartbeat = __rdtsc();\n");
                 
                 for s in statements {
                     let stmt_code = self.generate_parallel_statement(s, 2, &shared_vars, iterator);
@@ -1869,25 +1893,25 @@ impl CCodegen {
                         
                         let c_ret = self.type_to_c(ret_type);
                         if c_ret == "void" {
-                            block.push_str(&format!("size_t __phoenix_mark = zeus_arena_offset; {}({}); ", name, call_args.join(", ")));
+                            block.push_str(&format!("size_t __phoenix_mark = *zeus_arena_offset; {}({}); ", name, call_args.join(", ")));
                             for wb in writes_back {
                                 block.push_str(&wb);
                             }
-                            block.push_str("zeus_arena_offset = __phoenix_mark; })");
+                            block.push_str("*zeus_arena_offset = __phoenix_mark; })");
                         } else {
-                            block.push_str(&format!("size_t __phoenix_mark = zeus_arena_offset; {} _res = {}({}); ", c_ret, name, call_args.join(", ")));
+                            block.push_str(&format!("size_t __phoenix_mark = *zeus_arena_offset; {} _res = {}({}); ", c_ret, name, call_args.join(", ")));
                             for wb in writes_back {
                                 block.push_str(&wb);
                             }
-                            block.push_str("zeus_arena_offset = __phoenix_mark; _res; })");
+                            block.push_str("*zeus_arena_offset = __phoenix_mark; _res; })");
                         }
                         block
                     } else {
                           let c_ret = self.type_to_c(ret_type);
                         if c_ret == "void" {
-                            format!("({{ size_t __phoenix_mark = zeus_arena_offset; {}({}); zeus_arena_offset = __phoenix_mark; }})", name, args_c.join(", "))
+                            format!("({{ size_t __phoenix_mark = *zeus_arena_offset; {}({}); *zeus_arena_offset = __phoenix_mark; }})", name, args_c.join(", "))
                         } else {
-                            format!("({{ size_t __phoenix_mark = zeus_arena_offset; {} _res = {}({}); zeus_arena_offset = __phoenix_mark; _res; }})", c_ret, name, args_c.join(", "))
+                            format!("({{ size_t __phoenix_mark = *zeus_arena_offset; {} _res = {}({}); *zeus_arena_offset = __phoenix_mark; _res; }})", c_ret, name, args_c.join(", "))
                         }
                     }
                 } else {
@@ -1924,7 +1948,7 @@ impl CCodegen {
             Expression::IndexAccess { base, index } => {
                 format!("{}[(size_t)({})]", self.generate_parallel_expression(base, shared_vars, iterator), self.generate_parallel_expression(index, shared_vars, iterator))
             }
-            Expression::OramAccess { base, index } => {
+            Expression::OramAccess { base, index, bound } => {
                 let b = self.generate_parallel_expression(base, shared_vars, iterator);
                 let i = self.generate_parallel_expression(index, shared_vars, iterator);
                 // ORAM side-channel: use __zeus_rand (XOR-shift, no __rdtsc timing leak)

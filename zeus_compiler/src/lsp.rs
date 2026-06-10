@@ -48,7 +48,11 @@ pub fn run_lsp() {
                 "id": id,
                 "result": {
                     "capabilities": {
-                        "textDocumentSync": 1 // Full sync
+                        "textDocumentSync": 1, // Full sync
+                        "completionProvider": {
+                            "resolveProvider": false,
+                            "triggerCharacters": ["."]
+                        }
                     }
                 }
             });
@@ -76,6 +80,58 @@ pub fn run_lsp() {
             };
             
             publish_diagnostics(&uri, &text);
+        } else if method == "textDocument/completion" {
+            let id = req["id"].clone();
+            
+            // For now, provide basic static autocomplete for the standard library
+            let items = serde_json::json!([
+                {
+                    "label": "println",
+                    "kind": 3, // Function
+                    "detail": "fn println(val: f64) -> void",
+                    "documentation": "Prints a floating point number to stdout."
+                },
+                {
+                    "label": "sha256_init",
+                    "kind": 3, // Function
+                    "detail": "fn sha256_init() -> Sha256State",
+                    "documentation": "Initializes a SHA-256 state struct."
+                },
+                {
+                    "label": "chacha20_quarter_round",
+                    "kind": 3, // Function
+                    "detail": "fn chacha20_quarter_round(a: f64, b: f64, c: f64, d: f64) -> f64",
+                    "documentation": "Simulates a ChaCha20 quarter round."
+                },
+                {
+                    "label": "parse_ipv4_frame",
+                    "kind": 3, // Function
+                    "detail": "fn parse_ipv4_frame() -> IPv4Frame",
+                    "documentation": "Parses an IPv4 frame from the static buffer."
+                },
+                {
+                    "label": "crypto",
+                    "kind": 9, // Module
+                    "detail": "module zeus.crypto"
+                },
+                {
+                    "label": "io",
+                    "kind": 9, // Module
+                    "detail": "module zeus.io"
+                },
+                {
+                    "label": "net",
+                    "kind": 9, // Module
+                    "detail": "module zeus.net"
+                }
+            ]);
+
+            let resp = serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": id,
+                "result": items
+            });
+            send_response(resp);
         }
     }
 }

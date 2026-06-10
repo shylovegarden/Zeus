@@ -9,6 +9,12 @@ enum CacheEntry {
     Failed(String),
 }
 
+#[derive(Clone, Debug)]
+struct ValueRange {
+    min: f64,
+    max: f64,
+}
+
 pub struct FormalVerifier {
     constants: HashMap<String, f64>,
     z3_available: bool,
@@ -86,11 +92,13 @@ impl FormalVerifier {
 
     fn verify_statement(&mut self, stmt: &Statement) -> Result<(), String> {
         match stmt {
-            Statement::Let { name, value, is_mut, is_secret: _, var_type: _ } => {
-                if !is_mut {
-                    if let Some(val) = self.evaluate_constant(value) {
-                        self.constants.insert(name.clone(), val);
-                    }
+            Statement::Let { name, value, .. } => {
+                // Track bounds for variables
+                if let Some(range) = self.evaluate_bounds(value) {
+                    self.bounds.insert(name.clone(), range);
+                } else {
+                    // Default bound if unprovable at declaration (assume worst-case finite bounds for safety logic)
+                    self.bounds.insert(name.clone(), ValueRange { min: f64::MIN, max: f64::MAX });
                 }
             }
             Statement::FunctionDeclaration { body, .. } => {
@@ -124,18 +132,29 @@ impl FormalVerifier {
             Statement::Assert(expr) => {
                 self.prove_assertion(expr)?;
             }
+            Statement::If { condition, consequence, alternative } => {
+                // Very basic branching: just verify statements inside
+                for s in consequence {
+                    self.verify_statement(s)?;
+                }
+                if let Some(alt) = alternative {
+                    for s in alt {
+                        self.verify_statement(s)?;
+                    }
+                }
+            }
             _ => {}
         }
         Ok(())
     }
 
-    fn evaluate_constant(&self, expr: &Expression) -> Option<f64> {
+    fn evaluate_bounds(&self, expr: &Expression) -> Option<ValueRange> {
         match expr {
-            Expression::Number(n) => Some(*n),
-            Expression::Identifier(name) => self.constants.get(name).copied(),
+            Expression::Number(n) => Some(ValueRange { min: *n, max: *n }),
+            Expression::Identifier(name) => self.bounds.get(name).cloned(),
             Expression::Infix { left, operator, right } => {
-                let l = self.evaluate_constant(left)?;
-                let r = self.evaluate_constant(right)?;
+                let l = self.evaluate_bounds(left)?;
+                let r = self.evaluate_bounds(right)?;
                 match operator.as_str() {
                     "Plus"  => Some(l + r),
                     "Minus" => Some(l - r),
@@ -165,8 +184,8 @@ impl FormalVerifier {
             }
         }
         if let Expression::Infix { left, operator, right } = expr {
-            let l_val = self.evaluate_constant(left);
-            let r_val = self.evaluate_constant(right);
+            let l_bounds = self.evaluate_bounds(left);
+            let r_bounds = self.evaluate_bounds(right);
 
             if let (Some(l), Some(r)) = (l_val, r_val) {
                 let is_proven = match operator.as_str() {

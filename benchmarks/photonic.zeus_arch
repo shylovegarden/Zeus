@@ -1,0 +1,6 @@
+# Zeus Futuristic Hardware Blueprint
+ARCH_NAME = Photonic Tensor Node v1
+REGISTER_COUNT = 2048
+SIMD_WIDTH = 8192
+QUANTUM_CAPABLE = true
+FLAGS = -O3,-fno-math-errno

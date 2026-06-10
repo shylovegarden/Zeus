@@ -168,6 +168,9 @@ impl<'a> Parser<'a> {
                         break; // current_token is still the identifier
                     }
                 }
+                if self.peek_token == Token::Semicolon {
+                    self.next_token(); // consume identifier and move to semicolon
+                }
                 Some(Statement::Import(path))
             }
             Token::For => self.parse_for_statement(),
