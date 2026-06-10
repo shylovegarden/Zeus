@@ -1,3 +1,4 @@
+#![allow(clippy::collapsible_if, clippy::collapsible_else_if, clippy::map_unwrap_or, clippy::needless_bool)]
 //! wasm_codegen.rs -- "The Reach" backend. Emits WebAssembly text (WAT) for the
 //! integer/control-flow subset of Zeus, so a Zeus module can run in any WASM
 //! runtime (Wasmtime, Node, browsers, and edge/agent sandboxes like Wassette).
@@ -121,7 +122,7 @@ impl<'a> Lower<'a> {
                 out.push_str(&format!("    br $cont{}\n    end\n    end\n", l));
                 Ok(())
             }
-            Statement::LineDirective(_) => Ok(()),
+            Statement::LineDirective(_) | Statement::ProofBlock { .. } => Ok(()),
             _ => Err("unsupported statement (while/struct/parallel/secret/etc.)".into()),
         }
     }
@@ -196,6 +197,10 @@ pub fn emit_wasm(path: &str, out_path: Option<String>) {
     let mut parser = Parser::new(lexer);
     let program: Program = parser.parse_program();
 
+    // The Mathematical Truth Gate: run formal verification and bounding analyses
+    let zir = crate::zir::lower_and_analyze(&program);
+    let bounds = crate::bounds::analyze(&program);
+
     // map user fn -> has integer return (for drop on statement-calls)
     let mut fn_returns: HashMap<String, bool> = HashMap::new();
     for s in &program.statements {
@@ -207,7 +212,7 @@ pub fn emit_wasm(path: &str, out_path: Option<String>) {
     let mut lowered: Vec<LoweredFn> = Vec::new();
     for s in &program.statements {
         if let Statement::FunctionDeclaration { name, parameters, return_type, body, .. } = s {
-            lowered.push(lower_fn(name, parameters, return_type, body, &fn_returns));
+            lowered.push(lower_fn(name, &parameters, &return_type, &body, &fn_returns));
         }
     }
 
@@ -234,6 +239,33 @@ pub fn emit_wasm(path: &str, out_path: Option<String>) {
             skipped.push((f.name.clone(), why));
         }
     }
+
+    // Proof-Carrying WebAssembly: Embed the mathematical proof directly into the binary
+    use sha2::Digest;
+    let mut h = sha2::Sha256::new();
+    h.update(input.as_bytes());
+    let hex: String = h.finalize().iter().map(|b| format!("{:02x}", b)).collect();
+    let mut fns_json = Vec::new();
+    for pf in &zir.per_fn {
+        let b = bounds.fns.iter().find(|f| f.name == pf.name);
+        let wcet = if pf.reaches_extern {
+            "null".to_string()
+        } else {
+            b.and_then(|x| x.wcet).map(|v| v.to_string()).unwrap_or_else(|| "null".to_string())
+        };
+        let stack = b.map(|x| x.stack).unwrap_or(0);
+        let constant_time = pf.constant_time && !pf.reaches_extern;
+        fns_json.push(format!("    {{\"name\":\"{}\",\"reproducible\":{},\"constant_time\":{},\"wcet_steps\":{},\"stack_bytes\":{},\"ffi_unaudited\":{}}}",
+            pf.name, pf.deterministic, constant_time, wcet, stack, pf.reaches_extern));
+    }
+    let body = format!(
+        "{{\n  \"zeus_certificate\":\"v1\",\n  \"source\":\"{}\",\n  \"source_sha256\":\"{}\",\n  \"zero_heap\":{},\n  \"ffi_unaudited\":{},\n  \"functions\":[\n{}\n  ],",
+        path, hex, zir.zero_heap, zir.ffi_unaudited, fns_json.join(",\n"));
+    let (sig_hex, pub_hex) = crate::cert_sign::sign_body(body.as_bytes());
+    let cert_json = format!("{}\n  \"signature\":\"{}\",\n  \"pubkey\":\"{}\"\n}}", body, sig_hex, pub_hex);
+    
+    let escaped_cert = cert_json.replace('\\', "\\\\").replace('"', "\\\"").replace('\n', "\\n").replace('\r', "\\r");
+    module.push_str(&format!("  (@custom \"zeus_cert\" \"{}\")\n", escaped_cert));
     module.push_str(")\n");
 
     let out = out_path.unwrap_or_else(|| {
@@ -255,5 +287,6 @@ pub fn emit_wasm(path: &str, out_path: Option<String>) {
         println!(" \x1b[1;33mNote:\x1b[0m no function fell inside the WASM subset. Try integer-only functions (no arrays/structs/float/println).");
     } else {
         println!(" \x1b[90mrun:\x1b[0m  wasmtime run --invoke {} {} <args...>", exported[0], out);
+        println!(" \x1b[1;32m[PCC]\x1b[0m   Proof-Carrying Code generated and embedded into @custom \"zeus_cert\".");
     }
 }

@@ -1,3 +1,4 @@
+#![allow(clippy::collapsible_if, clippy::len_zero, clippy::map_unwrap_or, clippy::type_complexity)]
 use crate::ast::{Program, Statement, Expression, Type};
 use std::collections::HashMap;
 use crate::comptime::compiler::BytecodeCompiler;
@@ -45,6 +46,7 @@ fn ty_name(t: &Type) -> String {
         Type::Unknown(_) => "<unknown>".into(),
         Type::Pointer(_) => "pointer".into(),
         Type::Result(..) => "Result".into(),
+        Type::TypeParam(n) => n.clone(),
     }
 }
 
@@ -53,6 +55,7 @@ pub struct SemanticAnalyzer {
     struct_schemas: HashMap<String, Vec<(String, crate::ast::Type)>>,
     function_types: HashMap<String, Type>,
     function_arity: HashMap<String, usize>,
+    function_param_types: HashMap<String, Vec<Type>>,
     current_return: Vec<Option<Type>>,
 }
 
@@ -63,6 +66,7 @@ impl SemanticAnalyzer {
             struct_schemas: HashMap::new(),
             function_types: HashMap::new(),
             function_arity: HashMap::new(),
+            function_param_types: HashMap::new(),
             current_return: Vec::new(),
         }
     }
@@ -90,6 +94,7 @@ impl SemanticAnalyzer {
                     };
                     self.function_types.insert(name.clone(), ret_ty);
                     self.function_arity.insert(name.clone(), parameters.len());
+                    self.function_param_types.insert(name.clone(), parameters.iter().map(|(_, t)| t.clone()).collect());
                 }
                 Statement::ExternFunctionDeclaration { name, return_type, parameters, .. } => {
                     let ret_ty = match return_type {
@@ -98,6 +103,7 @@ impl SemanticAnalyzer {
                     };
                     self.function_types.insert(name.clone(), ret_ty);
                     self.function_arity.insert(name.clone(), parameters.len());
+                    self.function_param_types.insert(name.clone(), parameters.iter().map(|(_, t)| t.clone()).collect());
                 }
                 _ => {}
             }
@@ -135,15 +141,29 @@ impl SemanticAnalyzer {
             }
             Statement::ExpressionStatement(expr) => {
                 // Check if it's an assignment
-                if let Expression::Infix { left, operator, right: _ } = expr {
-                    if operator == "Assign" {
-                        if let Expression::Identifier(name) = &**left {
-                            if let Some(&(is_mut, _)) = self.lookup(name) {
-                                if !is_mut {
-                                    return Err(format!("Immutable variable '{}' cannot be reassigned. Use 'let mut'.", name));
+                if let Expression::Infix { left, operator, right } = expr.clone() {
+                    if matches!(operator.as_str(), "Assign"|"PlusAssign"|"MinusAssign"|"StarAssign"|"SlashAssign"|"PercentAssign") {
+                        if let Expression::Identifier(name) = &*left {
+                            match self.lookup(name.as_str()) {
+                                Some(&(is_mut, ref decl_ty)) => {
+                                    if !is_mut {
+                                        return Err(format!("Immutable variable '{}' cannot be reassigned. Use 'let mut'.", name));
+                                    }
+                                    // Type-check plain assignment (not compound)
+                                    if operator == "Assign" {
+                                        let rhs_ty = self.infer_type(&right);
+                                        let dt = decl_ty.clone();
+                                        if !types_compatible(&dt, &rhs_ty) {
+                                            return Err(format!(
+                                                "type mismatch: cannot assign {} to '{}' which is {}",
+                                                ty_name(&rhs_ty), name, ty_name(&dt)
+                                            ));
+                                        }
+                                    }
                                 }
-                            } else {
-                                return Err(format!("Assignment to undeclared variable '{}'.", name));
+                                None => {
+                                    return Err(format!("Assignment to undeclared variable '{}'.", name));
+                                }
                             }
                         }
                     }
@@ -186,8 +206,26 @@ impl SemanticAnalyzer {
                     self.declare(p_name, (false, ty.clone()));
                 }
                 self.current_return.push(return_type.clone());
-                for s in body {
+                for s in body.iter_mut() {
                     self.analyze_statement(s)?;
+                }
+                // Check implicit return: if the last statement is a bare expression
+                // and the function has a declared non-void return type, type-check it.
+                if let Some(Some(rt)) = self.current_return.last().cloned() {
+                    if let Some(Statement::ExpressionStatement(last_expr)) = body.last() {
+                        // Only flag if it looks like a value expression (not an assignment)
+                        let is_assign = matches!(last_expr, Expression::Infix { operator, .. }
+                            if matches!(operator.as_str(), "Assign"|"PlusAssign"|"MinusAssign"|"StarAssign"|"SlashAssign"|"PercentAssign"));
+                        if !is_assign {
+                            let got = self.infer_type(last_expr);
+                            if !types_compatible(&rt, &got) {
+                                return Err(format!(
+                                    "implicit return type mismatch in '{}': function returns {} but last expression is {}",
+                                    name, ty_name(&rt), ty_name(&got)
+                                ));
+                            }
+                        }
+                    }
                 }
                 self.current_return.pop();
                 self.pop_scope();
@@ -196,7 +234,7 @@ impl SemanticAnalyzer {
                 self.push_scope();
                 // The loop iterator is essentially a mutable local
                 self.declare(iterator, (true, Type::I32));
-                for s in body {
+                for s in body.iter_mut() {
                     self.analyze_statement(s)?;
                 }
                 self.pop_scope();
@@ -204,7 +242,7 @@ impl SemanticAnalyzer {
             Statement::While { condition, body } => {
                 self.analyze_expression(condition)?;
                 self.push_scope();
-                for s in body {
+                for s in body.iter_mut() {
                     self.analyze_statement(s)?;
                 }
                 self.pop_scope();
@@ -263,6 +301,7 @@ impl SemanticAnalyzer {
                 }
             }
             Statement::Return(expr) => {
+                self.analyze_expression(expr)?;
                 if let Some(Some(rt)) = self.current_return.last().cloned() {
                     let got = self.infer_type(expr);
                     if !types_compatible(&rt, &got) {
@@ -287,6 +326,33 @@ impl SemanticAnalyzer {
                 if let Some(alt) = alternative {
                     self.push_scope();
                     for s in alt {
+                        self.analyze_statement(s)?;
+                    }
+                    self.pop_scope();
+                }
+            }
+            Statement::EnumDeclaration { name, variants } => {
+                // Register enum type: each variant becomes a constructor
+                let mut schema = Vec::new();
+                for v in variants {
+                    // Store variant name as a zero-field struct for type lookups
+                    schema.push((v.name.clone(), crate::ast::Type::Unknown(format!("{}::{}", name, v.name))));
+                }
+                self.struct_schemas.insert(name.clone(), schema);
+                // Register enum as a known type
+                self.function_types.insert(name.clone(), crate::ast::Type::Struct(name.clone()));
+            }
+            Statement::MatchStatement { scrutinee, arms } => {
+                self.analyze_expression(scrutinee)?;
+                for arm in arms {
+                    self.push_scope();
+                    // Bind tuple-variant payload bindings as Unknown type
+                    if let crate::ast::MatchPattern::VariantTuple { bindings, .. } = &arm.pattern {
+                        for b in bindings {
+                            self.declare(b, (false, crate::ast::Type::Unknown("EnumPayload".to_string())));
+                        }
+                    }
+                    for s in &mut arm.body {
                         self.analyze_statement(s)?;
                     }
                     self.pop_scope();
@@ -337,13 +403,30 @@ impl SemanticAnalyzer {
                 if !self.struct_schemas.contains_key(name) {
                     return Err(format!("Cannot initialize unknown struct '{}'", name));
                 }
-                for (_, val) in fields {
+                let schema = self.struct_schemas.get(name).cloned().unwrap_or_default();
+                for (fname, val) in fields.iter_mut() {
                     self.analyze_expression(val)?;
+                    if let Some((_, field_ty)) = schema.iter().find(|(n, _)| n == fname) {
+                        let val_ty = self.infer_type(val);
+                        if !types_compatible(field_ty, &val_ty) {
+                            return Err(format!(
+                                "type mismatch: struct '{}' field '{}' is {} but initialized with {}",
+                                name, fname, ty_name(field_ty), ty_name(&val_ty)
+                            ));
+                        }
+                    }
                 }
             }
-            Expression::Infix { left, right, .. } => {
+            Expression::Infix { left, operator, right } => {
                 self.analyze_expression(left)?;
                 self.analyze_expression(right)?;
+                if matches!(operator.as_str(), "Slash" | "Percent" | "SlashAssign" | "PercentAssign") {
+                    if let Expression::Number(n) = &**right {
+                        if *n == 0.0 {
+                            return Err("division or modulo by a constant zero".to_string());
+                        }
+                    }
+                }
             }
             Expression::Prefix { operand, .. } => {
                 self.analyze_expression(operand)?;
@@ -361,6 +444,19 @@ impl SemanticAnalyzer {
                             name, arguments.len(), arity));
                     }
                 }
+                // Conservative argument type check (user-defined fns only; same
+                // clear-mismatch rule as `let`/`return`, so no false positives).
+                if let Some(ptypes) = self.function_param_types.get(name.as_str()).cloned() {
+                    for (i, arg) in arguments.iter().enumerate() {
+                        if let Some(pt) = ptypes.get(i) {
+                            let at = self.infer_type(arg);
+                            if !types_compatible(pt, &at) {
+                                return Err(format!("argument {} to '{}' has type {} but the parameter is {}",
+                                    i + 1, name, ty_name(&at), ty_name(pt)));
+                            }
+                        }
+                    }
+                }
             }
             Expression::FieldAccess { base, .. } => {
                 self.analyze_expression(base)?;
@@ -369,7 +465,7 @@ impl SemanticAnalyzer {
                 self.analyze_expression(base)?;
                 self.analyze_expression(index)?;
             }
-            Expression::OramAccess { base, index, bound: _ } => {
+            Expression::OramAccess { base, index, .. } => {
                 self.analyze_expression(base)?;
                 self.analyze_expression(index)?;
             }
@@ -390,6 +486,24 @@ impl SemanticAnalyzer {
                     }
                 } else {
                     eprintln!("[ZEUS] comptime() expression not foldable; evaluated at runtime.");
+                }
+            }
+            Expression::EnumVariant { payload, .. } => {
+                for p in payload { self.analyze_expression(p)?; }
+            }
+            Expression::MatchExpr { scrutinee, arms } => {
+                self.analyze_expression(scrutinee)?;
+                for arm in arms {
+                    self.push_scope();
+                    if let crate::ast::MatchPattern::VariantTuple { bindings, .. } = &arm.pattern {
+                        for b in bindings {
+                            self.declare(b, (false, crate::ast::Type::Unknown("EnumPayload".to_string())));
+                        }
+                    }
+                    for s in &mut arm.body {
+                        self.analyze_statement(s)?;
+                    }
+                    self.pop_scope();
                 }
             }
             _ => {}
@@ -478,7 +592,8 @@ impl SemanticAnalyzer {
                 let elem_ty = elements.first().map(|e| self.infer_type(e)).unwrap_or(Type::Unknown("ArrayElem".to_string()));
                 Type::Array(Box::new(elem_ty), Box::new(crate::ast::Expression::Number(elements.len() as f64)))
             }
-            _ => Type::Unknown("UnknownExpr".to_string())
+            Expression::EnumVariant { enum_name, .. } => Type::Struct(enum_name.clone()),
+            Expression::MatchExpr { .. } => Type::Unknown("MatchResult".to_string()),
         }
     }
 }

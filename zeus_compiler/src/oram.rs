@@ -1,3 +1,4 @@
+#![allow(clippy::collapsible_if, clippy::len_zero, clippy::map_unwrap_or, clippy::type_complexity)]
 use crate::ast::*;
 use std::collections::HashSet;
 
@@ -96,6 +97,13 @@ fn transform_statement(stmt: &mut Statement, scope: &mut HashSet<String>) {
         | Statement::Panic(_)
         | Statement::LineDirective(_)
         | Statement::AtomicAdd { .. } => {}
+        Statement::EnumDeclaration { .. } => {}
+        Statement::MatchStatement { scrutinee, arms } => {
+            transform_expression(scrutinee, scope);
+            for arm in arms {
+                for s in arm.body.iter_mut() { let mut sc = scope.clone(); transform_statement(s, &mut sc); }
+            }
+        }
     }
 }
 
@@ -108,7 +116,7 @@ fn transform_expression(expr: &mut Expression, scope: &HashSet<String>) {
             transform_expression(base, scope);
             transform_expression(index, scope);
             // OPT-IN: only rewrite to ORAM when the indexed array is `secret`.
-            if root_ident(base).map_or(false, |r| scope.contains(&r)) {
+            if root_ident(base).is_some_and(|r| scope.contains(&r)) {
                 replace_with_oram = true;
             }
         }
@@ -137,7 +145,7 @@ fn transform_expression(expr: &mut Expression, scope: &HashSet<String>) {
                 transform_expression(dim, scope);
             }
         }
-        Expression::OramAccess { base, index } => {
+        Expression::OramAccess { base, index, .. } => {
             transform_expression(base, scope);
             transform_expression(index, scope);
         }
@@ -152,6 +160,15 @@ fn transform_expression(expr: &mut Expression, scope: &HashSet<String>) {
             for el in elements { transform_expression(el, scope); }
         }
         Expression::Identifier(_) | Expression::Number(_) | Expression::StringLiteral(_) => {}
+        Expression::EnumVariant { payload, .. } => {
+            for p in payload { transform_expression(p, scope); }
+        }
+        Expression::MatchExpr { scrutinee, arms } => {
+            transform_expression(scrutinee, scope);
+            for arm in arms {
+                for s in arm.body.iter_mut() { let mut sc = scope.clone(); transform_statement(s, &mut sc); }
+            }
+        }
     }
 
     // Rewrite a secret IndexAccess into an OramAccess.

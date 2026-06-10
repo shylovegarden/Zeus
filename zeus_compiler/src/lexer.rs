@@ -1,3 +1,14 @@
+/// Source position: 1-based line and column numbers.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct Span {
+    pub line: usize,
+    pub col: usize,
+}
+
+impl Span {
+    pub fn new(line: usize, col: usize) -> Self { Span { line, col } }
+}
+
 #[derive(Debug, PartialEq, Clone)]
 pub enum Token {
     // Keywords
@@ -32,6 +43,8 @@ pub enum Token {
     Verify,
     Adaptive,
     Cluster,
+    Enum,
+    Match,
 
     // Types
     I8,
@@ -52,6 +65,12 @@ pub enum Token {
     Minus,        // -
     Star,         // *
     Slash,        // /
+    Percent,      // %
+    PlusAssign,    // +=
+    MinusAssign,   // -=
+    StarAssign,    // *=
+    SlashAssign,   // /=
+    PercentAssign, // %=
     Dot,          // .
     Arrow,        // ->
     DoubleDot,    // ..
@@ -85,6 +104,8 @@ pub enum Token {
     Question,     // ?
     Semicolon,    // ;
     AtSign,       // @
+    FatArrow,     // =>
+    DoubleColon,  // ::
 
     Eof,
 }
@@ -98,6 +119,11 @@ pub struct Lexer<'a> {
     read_position: usize,
     ch: Option<char>,
     pub line_number: usize,
+    /// Current column of `ch` (1-based).
+    col: usize,
+    /// Line/column snapshotted at the start of the most recently consumed token.
+    pub token_line: usize,
+    pub token_col: usize,
 }
 
 impl<'a> Lexer<'a> {
@@ -110,14 +136,25 @@ impl<'a> Lexer<'a> {
             read_position: 0,
             ch: None,
             line_number: 1,
+            col: 0,
+            token_line: 1,
+            token_col: 1,
         };
         lexer.read_char();
         lexer
     }
 
+    /// Return the span (line, col) of the token most recently started by `next_token`.
+    pub fn span(&self) -> Span {
+        Span::new(self.token_line, self.token_col)
+    }
+
     fn read_char(&mut self) {
         if let Some('\n') = self.ch {
             self.line_number += 1;
+            self.col = 1;
+        } else {
+            self.col += 1;
         }
         if self.read_position >= self.chars.len() {
             self.ch = None;
@@ -160,26 +197,31 @@ impl<'a> Lexer<'a> {
             }
         }
 
+        // Snapshot position of this token's first character.
+        self.token_line = self.line_number;
+        self.token_col = self.col;
+
         let token = match self.ch {
             Some('=') => {
                 if self.peek_char() == Some('=') {
                     self.read_char();
                     Token::Equal
+                } else if self.peek_char() == Some('>') {
+                    self.read_char();
+                    Token::FatArrow
                 } else {
                     Token::Assign
                 }
             }
-            Some('+') => Token::Plus,
+            Some('+') => { if self.peek_char() == Some('=') { self.read_char(); Token::PlusAssign } else { Token::Plus } }
             Some('-') => {
-                if self.peek_char() == Some('>') {
-                    self.read_char();
-                    Token::Arrow
-                } else {
-                    Token::Minus
-                }
+                if self.peek_char() == Some('>') { self.read_char(); Token::Arrow }
+                else if self.peek_char() == Some('=') { self.read_char(); Token::MinusAssign }
+                else { Token::Minus }
             }
-            Some('*') => Token::Star,
-            Some('/') => Token::Slash,
+            Some('*') => { if self.peek_char() == Some('=') { self.read_char(); Token::StarAssign } else { Token::Star } }
+            Some('/') => { if self.peek_char() == Some('=') { self.read_char(); Token::SlashAssign } else { Token::Slash } }
+            Some('%') => { if self.peek_char() == Some('=') { self.read_char(); Token::PercentAssign } else { Token::Percent } }
             Some('>') => {
                 if self.peek_char() == Some('>') {
                     self.read_char();
@@ -226,7 +268,14 @@ impl<'a> Lexer<'a> {
             Some(']') => Token::RBracket,
             Some(',') => Token::Comma,
             Some(';') => Token::Semicolon,
-            Some(':') => Token::Colon,
+            Some(':') => {
+                if self.peek_char() == Some(':') {
+                    self.read_char();
+                    Token::DoubleColon
+                } else {
+                    Token::Colon
+                }
+            }
             Some('?') => Token::Question,
             Some('|') => {
                 if self.peek_char() == Some('|') {
@@ -271,6 +320,8 @@ impl<'a> Lexer<'a> {
                     "pub" => Token::Pub,
                     "import" => Token::Import,
                     "struct" => Token::Struct,
+                    "enum" => Token::Enum,
+                    "match" => Token::Match,
                     "test" => Token::Test,
                     "extern" => Token::Extern,
                     "panic" => Token::Panic,
@@ -292,7 +343,7 @@ impl<'a> Lexer<'a> {
                     _ => Token::Identifier(ident),
                 };
             }
-            Some(ch) if ch.is_digit(10) => {
+            Some(ch) if ch.is_ascii_digit() => {
                 return Token::Number(self.read_number());
             }
             None => return Token::Eof,
@@ -318,7 +369,7 @@ impl<'a> Lexer<'a> {
     fn read_number(&mut self) -> f64 {
         let position = self.position;
         while let Some(ch) = self.ch {
-            if ch.is_digit(10) {
+            if ch.is_ascii_digit() {
                 self.read_char();
             } else if ch == '.' {
                 if self.peek_char() == Some('.') {

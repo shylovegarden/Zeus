@@ -1,0 +1,5 @@
+# Shell scripts and Zeus sources must use LF (CRLF breaks bash + some tooling).
+*.sh    text eol=lf
+*.zs    text eol=lf
+*.rs    text eol=lf
+*.toml  text eol=lf

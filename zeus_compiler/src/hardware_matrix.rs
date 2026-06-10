@@ -1,6 +1,7 @@
 use std::fs;
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct HardwareBlueprint {
     pub arch_name: String,
     pub register_count: usize,

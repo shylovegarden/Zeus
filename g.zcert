@@ -1,0 +1,13 @@
+{
+  "zeus_certificate":"v1",
+  "source":"/sessions/wonderful-exciting-archimedes/tmp/tmpp7v9oyr2/g.zs",
+  "source_sha256":"90eaafa0d5381d07b31d69802f76f09028ecd308bf633596c21af1078b18128d",
+  "binary_sha256":"e83ccb161bad4e28d76e820c09afeda04d0667224d61c39903646dab2910783b",
+  "zero_heap":true,
+  "ffi_unaudited":false,
+  "functions":[
+
+  ],
+  "signature":"f7ea503f7b70076e9effe0b24c6aa4c683f5d2a71a62357dce52d68c335521135b4a2b89baed6acf88f4b4f109a9e38cbabbea547ff1a2d2121d475a3a93050f",
+  "pubkey":"688615eb64f575bb7ab65fc34d4398529df246fd263b168877100ec00eb63b42"
+}

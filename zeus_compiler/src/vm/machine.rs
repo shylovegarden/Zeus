@@ -1,8 +1,15 @@
+#![allow(clippy::collapsible_if, clippy::collapsible_else_if, clippy::map_unwrap_or, clippy::needless_bool)]
 use super::opcode::Opcode;
 
 pub struct Machine {
     pub stack: Vec<f64>,
     pub memory: std::collections::HashMap<usize, f64>,
+}
+
+impl Default for Machine {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Machine {

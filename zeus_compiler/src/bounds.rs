@@ -1,3 +1,4 @@
+#![allow(clippy::collapsible_if, clippy::collapsible_else_if, clippy::map_unwrap_or, clippy::needless_bool)]
 //! bounds.rs — provably-bounded resource analysis (WCET steps + stack bytes).
 //!
 //! Worst-case execution time is undecidable in general, but DECIDABLE on Zeus's
@@ -69,7 +70,7 @@ impl<'a> Cost<'a> {
             Expression::Number(_) | Expression::Identifier(_) | Expression::StringLiteral(_) => 1,
             Expression::Infix { left, right, .. } => 1 + self.expr(left)? + self.expr(right)?,
             Expression::Prefix { operand, .. } => 1 + self.expr(operand)?,
-            Expression::IndexAccess { base, index } | Expression::OramAccess { base, index } =>
+            Expression::IndexAccess { base, index } | Expression::OramAccess { base, index, .. } =>
                 1 + self.expr(base)? + self.expr(index)?,
             Expression::FieldAccess { base, .. } => 1 + self.expr(base)?,
             Expression::ArrayLiteral(xs) => { let mut c = 1; for x in xs { c += self.expr(x)?; } c }
@@ -152,7 +153,7 @@ fn stack_of(body: &[Statement], params: usize, struct_fields: &HashMap<String, u
             if let Some(n) = const_i64(size) { return Some((n.max(0) as u64) * 8); }
         }
         // SoA `Struct[N]` (Index/Oram with Identifier base)
-        if let Expression::IndexAccess { base, index } | Expression::OramAccess { base, index } = value {
+        if let Expression::IndexAccess { base, index } | Expression::OramAccess { base, index, .. } = value {
             if let Expression::Identifier(sn) = base.as_ref() {
                 if let Some(n) = const_i64(index) {
                     let fields = *sf.get(sn).unwrap_or(&1) as u64;
@@ -199,7 +200,9 @@ pub fn analyze(program: &Program) -> BoundsReport {
 
     // function bodies
     let mut bodies: HashMap<String, &[Statement]> = HashMap::new();
-    fn collect_fns<'a>(stmts: &'a [Statement], out: &mut Vec<(&'a str, &'a Vec<(String, Type)>, &'a Vec<Statement>, &'a Vec<FunctionAttribute>)>) {
+    type FnEntry<'x> = (&'x str, &'x Vec<(String, Type)>, &'x Vec<Statement>, &'x Vec<FunctionAttribute>);
+    #[allow(clippy::type_complexity)]
+    fn collect_fns<'a>(stmts: &'a [Statement], out: &mut Vec<FnEntry<'a>>) {
         for s in stmts {
             if let Statement::FunctionDeclaration { name, parameters, body, attributes, .. } = s {
                 out.push((name.as_str(), parameters, body, attributes));

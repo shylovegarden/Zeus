@@ -5,6 +5,18 @@ pub struct Formatter {
     indent_size: usize,
 }
 
+fn op_sym(op: &str) -> &str {
+    match op {
+        "Plus" => "+", "Minus" => "-", "Star" => "*", "Slash" => "/", "Percent" => "%",
+        "Assign" => "=", "PlusAssign" => "+=", "MinusAssign" => "-=", "StarAssign" => "*=",
+        "SlashAssign" => "/=", "PercentAssign" => "%=",
+        "LessThan" => "<", "GreaterThan" => ">", "Equal" => "==", "NotEqual" => "!=",
+        "GreaterEqual" => ">=", "LessEqual" => "<=", "And" => "&&", "Or" => "||",
+        "BitwiseAnd" => "&", "Pipe" => "|", "BitShiftLeft" => "<<", "BitShiftRight" => ">>",
+        other => other,
+    }
+}
+
 impl Formatter {
     pub fn new() -> Self {
         Self {
@@ -27,7 +39,7 @@ impl Formatter {
         for (i, stmt) in program.statements.iter().enumerate() {
             result.push_str(&self.format_statement(stmt));
             if i < program.statements.len() - 1 {
-                result.push_str("\n");
+                result.push('\n');
             }
         }
         result
@@ -47,7 +59,7 @@ impl Formatter {
                     self.format_expression(value)
                 )
             }
-            Statement::StructDeclaration { name, is_component, fields } => {
+            Statement::StructDeclaration { name, is_component, fields, type_params: _ } => {
                 let comp_str = if *is_component { "component struct " } else { "struct " };
                 let mut result = format!("{}{}{} {{\n", self.indent(), comp_str, name);
                 self.indent_level += 1;
@@ -71,6 +83,7 @@ impl Formatter {
                 body,
                 attributes: _,
                 secret_params: _,
+                type_params: _,
             } => {
                 let pub_str = if *is_pub { "pub " } else { "" };
                 let params: Vec<String> = parameters
@@ -286,6 +299,35 @@ impl Formatter {
                 result.push_str(&format!("{}}}\n", self.indent()));
                 result
             }
+            Statement::EnumDeclaration { name, variants } => {
+                let mut s = format!("enum {} {{\n", name);
+                for v in variants {
+                    if let Some(types) = &v.payload {
+                        let tys: Vec<String> = types.iter().map(|_| "i32".to_string()).collect();
+                        s.push_str(&format!("    {}({})\n", v.name, tys.join(", ")));
+                    } else {
+                        s.push_str(&format!("    {},\n", v.name));
+                    }
+                }
+                s.push('}');
+                s
+            }
+            Statement::MatchStatement { scrutinee, arms } => {
+                let mut s = format!("match {} {{\n", self.format_expression(scrutinee));
+                for arm in arms {
+                    let pat = match &arm.pattern {
+                        crate::ast::MatchPattern::Variant { enum_name, variant } => format!("{}::{}", enum_name, variant),
+                        crate::ast::MatchPattern::VariantTuple { enum_name, variant, bindings } => format!("{}::{}({})", enum_name, variant, bindings.join(", ")),
+                        crate::ast::MatchPattern::Wildcard => "_".to_string(),
+                        crate::ast::MatchPattern::Literal(n) => format!("{}", n),
+                    };
+                    s.push_str(&format!("    {} => {{\n", pat));
+                    for stmt in &arm.body { s.push_str(&format!("        {}\n", self.format_statement(stmt))); }
+                    s.push_str("    }\n");
+                }
+                s.push('}');
+                s
+            }
         }
     }
 
@@ -301,7 +343,7 @@ impl Formatter {
             } => format!(
                 "{} {} {}",
                 self.format_expression(left),
-                operator,
+                op_sym(operator),
                 self.format_expression(right)
             ),
             Expression::TensorDefinition { dimensions } => {
@@ -357,6 +399,15 @@ impl Formatter {
                 let parts: Vec<String> = elements.iter().map(|e| self.format_expression(e)).collect();
                 format!("[{}]", parts.join(", "))
             }
+            Expression::EnumVariant { enum_name, variant, payload } => {
+                if payload.is_empty() {
+                    format!("{}::{}", enum_name, variant)
+                } else {
+                    let args: Vec<String> = payload.iter().map(|e| self.format_expression(e)).collect();
+                    format!("{}::{}({})", enum_name, variant, args.join(", "))
+                }
+            }
+            Expression::MatchExpr { .. } => "match { .. }".to_string(),
         }
     }
 
@@ -371,9 +422,9 @@ impl Formatter {
             Type::Tensor { dimensions, is_sparse } => {
                 let mut out = if *is_sparse { "sparse tensor".to_string() } else { "tensor".to_string() };
                 if !dimensions.is_empty() {
-                    out.push_str("<");
+                    out.push('<');
                     out.push_str(&dimensions.iter().map(|d| self.format_expression(d)).collect::<Vec<_>>().join(", "));
-                    out.push_str(">");
+                    out.push('>');
                 }
                 out
             }
@@ -386,6 +437,7 @@ impl Formatter {
             Type::Unknown(name) => name.clone(),
             Type::Result(ok, err) => format!("Result<{}, {}>", self.format_type(ok), self.format_type(err)),
             Type::Pointer(base) => format!("*{}", self.format_type(base)),
+            Type::TypeParam(n) => n.clone(),
         }
     }
 }

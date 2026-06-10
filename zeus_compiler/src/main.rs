@@ -1,11 +1,12 @@
 mod lexer;
 mod ast;
 mod backend;
-mod codegen;
+#[path = "codegen/mod.rs"] mod codegen;
 mod energy_profiler;
 mod formal_verifier;
-mod parser;
+#[path = "parser/mod.rs"] mod parser;
 mod oram;
+mod mono;
 mod analyzer;
 mod zir;
 mod bounds;
@@ -185,6 +186,10 @@ fn main() {
             match cert_sign::verify_cert_file(&args[2]) {
                 Ok(()) => {
                     println!("\x1b[1;32mOK\x1b[0m  {}: content hash present and Ed25519 signature valid.", args[2]);
+                    match check_cert_binary(&args[2]) {
+                        Ok(msg) => println!("     \x1b[90mbinary binding:\x1b[0m {}", msg),
+                        Err(e) => { eprintln!("\x1b[1;31mFAIL\x1b[0m  {}: {}", args[2], e); std::process::exit(1); }
+                    }
                 }
                 Err(e) => {
                     eprintln!("\x1b[1;31mFAIL\x1b[0m  {}: {}", args[2], e);
@@ -305,8 +310,8 @@ fn import_header(path: &str) {
     while let Some(c) = chars.next() {
         if c == '/' {
             match chars.peek() {
-                Some('/') => { while let Some(n) = chars.next() { if n == '\n' { cleaned.push('\n'); break; } } continue; }
-                Some('*') => { chars.next(); let mut prev = ' '; while let Some(n) = chars.next() { if prev == '*' && n == '/' { break; } prev = n; } continue; }
+                Some('/') => { for n in chars.by_ref() { if n == '\n' { cleaned.push('\n'); break; } } continue; }
+                Some('*') => { chars.next(); let mut prev = ' '; for n in chars.by_ref() { if prev == '*' && n == '/' { break; } prev = n; } continue; }
                 _ => {}
             }
         }
@@ -327,12 +332,12 @@ fn import_header(path: &str) {
         let params_s = stmt[lp+1..rp].trim();  // "type a, type b"
         // skip typedefs, structs, externs of variables, function pointers
         if head.starts_with("typedef") || head.starts_with("struct") || head.starts_with("union") || head.starts_with("enum") { skipped += 1; continue; }
-        if head.contains('(') || head.contains('*') && head.ends_with('*') == false && head.matches(char::is_whitespace).count() == 0 { /* heuristic */ }
+        if head.contains('(') || head.contains('*') && !head.ends_with('*') && head.matches(char::is_whitespace).count() == 0 { /* heuristic */ }
         // name = last identifier token in head; ret type = the rest
         let toks: Vec<&str> = head.split(|ch: char| ch.is_whitespace() || ch == '*').filter(|t| !t.is_empty()).collect();
         if toks.len() < 2 { skipped += 1; continue; }
         let name = toks[toks.len()-1];
-        if !name.chars().all(|ch| ch.is_alphanumeric() || ch == '_') || name.chars().next().map_or(true, |ch| ch.is_numeric()) { skipped += 1; continue; }
+        if !name.chars().all(|ch| ch.is_alphanumeric() || ch == '_') || name.chars().next().is_none_or(|ch| ch.is_numeric()) { skipped += 1; continue; }
         // return type = head minus the trailing name
         let ret_c = head[..head.len()-name.len()].trim();
         let ret_z = c_type_to_zeus(ret_c);
@@ -381,12 +386,42 @@ fn import_header(path: &str) {
 fn json_mode() -> bool { std::env::args().any(|a| a == "--json") }
 
 /// Emit the machine-checkable proof certificate for a successfully built program.
+fn check_cert_binary(cert_path: &str) -> Result<String, String> {
+    use sha2::Digest;
+    let text = std::fs::read_to_string(cert_path).map_err(|e| e.to_string())?;
+    let needle = "\"binary_sha256\":\"";
+    let want = match text.find(needle) {
+        Some(p) => { let r = &text[p + needle.len()..]; let e = r.find('"').unwrap_or(0); r[..e].to_string() }
+        None => return Ok("cert has no binary_sha256 (older format)".to_string()),
+    };
+    if want == "none" { return Ok("no binary bound (source/-c-only cert)".to_string()); }
+    let bin_path = cert_path.strip_suffix(".zcert").unwrap_or(cert_path);
+    let data = match std::fs::read(bin_path) {
+        Ok(d) => d,
+        Err(_) => return Ok(format!("binary '{}' not present; binding check skipped", bin_path)),
+    };
+    let mut h = sha2::Sha256::new(); h.update(&data);
+    let got: String = h.finalize().iter().map(|b| format!("{:02x}", b)).collect();
+    if got == want { Ok(format!("binary '{}' matches cert (sha256 verified)", bin_path)) }
+    else { Err(format!("binary '{}' does NOT match the certificate (tampered or rebuilt)", bin_path)) }
+}
+
 fn write_certificate(source_path: &str, base_name: &str, zir: &zir::ZirReport, bounds: &bounds::BoundsReport) {
     use sha2::Digest;
     let src = std::fs::read(source_path).unwrap_or_default();
     let mut h = sha2::Sha256::new();
     h.update(&src);
     let hex: String = h.finalize().iter().map(|b| format!("{:02x}", b)).collect();
+    // Bind the cert to the COMPILED BINARY (not just the source): an attacker must
+    // not be able to pair a valid cert with a different binary. Hashed only if the
+    // binary exists (a -c-only build has none).
+    let bin_hex: String = match std::fs::read(base_name) {
+        Ok(b) if !b.is_empty() => {
+            let mut bh = sha2::Sha256::new(); bh.update(&b);
+            bh.finalize().iter().map(|x| format!("{:02x}", x)).collect()
+        }
+        _ => "none".to_string(),
+    };
     let mut fns_json = Vec::new();
     for pf in &zir.per_fn {
         let b = bounds.fns.iter().find(|f| f.name == pf.name);
@@ -410,8 +445,8 @@ fn write_certificate(source_path: &str, base_name: &str, zir: &zir::ZirReport, b
     // a trailing comma; the verifier reconstructs exactly this prefix by splitting at
     // the "\n  \"signature\":" marker (see cert_sign::canonical_body).
     let body = format!(
-        "{{\n  \"zeus_certificate\":\"v1\",\n  \"source\":\"{}\",\n  \"source_sha256\":\"{}\",\n  \"zero_heap\":{},\n  \"ffi_unaudited\":{},\n  \"functions\":[\n{}\n  ],",
-        source_path, hex, zir.zero_heap, zir.ffi_unaudited, fns_json.join(",\n"));
+        "{{\n  \"zeus_certificate\":\"v1\",\n  \"source\":\"{}\",\n  \"source_sha256\":\"{}\",\n  \"binary_sha256\":\"{}\",\n  \"zero_heap\":{},\n  \"ffi_unaudited\":{},\n  \"functions\":[\n{}\n  ],",
+        source_path, hex, bin_hex, zir.zero_heap, zir.ffi_unaudited, fns_json.join(",\n"));
     // Sign the canonical body bytes with Ed25519 (#5) and append signature + pubkey
     // as the final two fields (so the signed body is everything before "signature").
     let (sig_hex, pub_hex) = cert_sign::sign_body(body.as_bytes());
@@ -577,7 +612,6 @@ fn audit_exit(any_not_proven: bool, any_undecidable: bool, strict: bool) {
 /// renders a per-function security verdict plus actionable FINDINGS. Does NOT emit
 /// C or compile -- this is fast, static analysis only. `--json` emits a
 /// machine-readable variant.
-
 // ---- Pillar 3: Semantic structured diagnostics (machine-first) -------------
 // Turns a human finding string into a typed record an agent can consume without
 // scraping prose: {function, kind, fixable, suggested_action, observed/budget/gap}.
@@ -646,7 +680,7 @@ fn cmd_audit(source_path: &str, sarif: bool, sarif_path: Option<String>, strict:
             emit_json_diagnostics(parser.errors());
         } else {
             eprintln!("\n\x1b[31m[ZEUS AUDIT ABORTED]\x1b[0m Syntax Error");
-            for err in parser.errors() { eprintln!("  {}", err); }
+            print_parse_errors(source_path, &input, parser.errors());
         }
         std::process::exit(1);
     }
@@ -690,7 +724,7 @@ fn cmd_audit(source_path: &str, sarif: bool, sarif_path: Option<String>, strict:
         let fb = bounds.fns.iter().find(|f| f.name == pf.name);
         let has_leak = !leaks_for_fn(&zir.leaks, &pf.name).is_empty();
         let has_violation = bounds.violations.iter().any(|v| violation_names_fn(v, &pf.name));
-        let bounded = fb.map_or(false, |b| b.wcet.is_some());
+        let bounded = fb.is_some_and(|b| b.wcet.is_some());
         let verdict = if has_leak || has_violation {
             AuditVerdict::NotProven
         } else if !bounded || !pf.deterministic {
@@ -813,7 +847,7 @@ fn run_with_policy(target: &str, required: &[String]) {
             "zero-heap" | "zero_heap" => json.get("zero_heap").and_then(|v| v.as_bool()).unwrap_or(false),
             "reproducible" | "deterministic" => all_fns("reproducible"),
             "constant-time" | "constant_time" => all_fns("constant_time"),
-            "bounded" | "wcet" => !fns.is_empty() && fns.iter().all(|f| f.get("wcet_steps").map_or(false, |v| !v.is_null())),
+            "bounded" | "wcet" => !fns.is_empty() && fns.iter().all(|f| f.get("wcet_steps").is_some_and(|v| !v.is_null())),
             other => { eprintln!("\x1b[31m[ZEUS POLICY GATE]\x1b[0m unknown property '{}' \u{2014} refusing (fail-closed)", other); false }
         };
         if !ok { unmet.push(req.clone()); }
@@ -832,18 +866,56 @@ fn json_escape(s: &str) -> String {
     s.replace('\\', "\\\\").replace('"', "\\\"").replace('\n', " ")
 }
 
+/// Parse a diagnostic string of the form "L:C: msg" or legacy "line L: msg"
+/// and return (line, col, message).
+fn parse_diag(e: &str) -> (i64, i64, String) {
+    // New format: "12:8: message"
+    if let Some(rest) = e.splitn(3, ':').collect::<Vec<_>>().first().copied() {
+        let parts: Vec<&str> = e.splitn(3, ':').collect();
+        if parts.len() == 3 {
+            if let (Ok(l), Ok(c)) = (parts[0].trim().parse::<i64>(), parts[1].trim().parse::<i64>()) {
+                return (l, c, parts[2].trim().to_string());
+            }
+        }
+        let _ = rest;
+    }
+    // Legacy format: "line N: message"
+    if let Some(rest) = e.strip_prefix("line ") {
+        if let Some(colon) = rest.find(':') {
+            let n: i64 = rest[..colon].trim().parse().unwrap_or(0);
+            return (n, 0, rest[colon+1..].trim().to_string());
+        }
+    }
+    (0, 0, e.to_string())
+}
+
 fn emit_json_diagnostics(errors: &[String]) {
     let mut items = Vec::new();
     for e in errors {
-        let (line, msg) = if let Some(rest) = e.strip_prefix("line ") {
-            if let Some(colon) = rest.find(':') {
-                let n: i64 = rest[..colon].trim().parse().unwrap_or(0);
-                (n, rest[colon+1..].trim().to_string())
-            } else { (0, e.clone()) }
-        } else { (0, e.clone()) };
-        items.push(format!("{{\"severity\":\"error\",\"line\":{},\"message\":\"{}\"}}", line, json_escape(&msg)));
+        let (line, col, msg) = parse_diag(e);
+        items.push(format!("{{\"severity\":\"error\",\"line\":{},\"col\":{},\"message\":\"{}\"}}", line, col, json_escape(&msg)));
     }
     println!("{{\"status\":\"error\",\"stage\":\"parse\",\"diagnostics\":[{}]}}", items.join(","));
+}
+
+/// Print diagnostics in Rust-style  `error[E]: msg\n --> file:L:C`.
+fn print_parse_errors(source_path: &str, source: &str, errors: &[String]) {
+    let lines: Vec<&str> = source.lines().collect();
+    for e in errors {
+        let (line, col, msg) = parse_diag(e);
+        eprintln!("\x1b[1;31merror\x1b[0m: {}", msg);
+        if line > 0 {
+            eprintln!(" \x1b[1;34m-->\x1b[0m {}:{}:{}", source_path, line, col);
+            eprintln!("  \x1b[1;34m|\x1b[0m");
+            let src_line = lines.get((line as usize).saturating_sub(1)).copied().unwrap_or("");
+            eprintln!("{:>3} \x1b[1;34m|\x1b[0m {}", line, src_line);
+            if col > 0 {
+                let spaces = " ".repeat((col as usize).saturating_sub(1));
+                eprintln!("  \x1b[1;34m|\x1b[0m {}\x1b[1;31m^\x1b[0m here", spaces);
+            }
+            eprintln!("  \x1b[1;34m|\x1b[0m");
+        }
+    }
 }
 
 fn print_usage() {
@@ -912,7 +984,7 @@ fn init_project(name: &str) {
 }
 
 fn write_safety_report(program: &ast::Program) {
-    use ast::{Statement, FunctionAttribute};
+    use ast::Statement;
     let (mut verify, mut requires, mut ensures) = (0usize, 0usize, 0usize);
     let mut has_secret = false;
     fn scan(stmts: &[Statement], v: &mut usize, rq: &mut usize, en: &mut usize, sec: &mut bool) {
@@ -960,6 +1032,7 @@ fn write_safety_report(program: &ast::Program) {
     let _ = std::fs::write("zeus_safety_report.txt", out);
 }
 
+#[allow(clippy::too_many_arguments)]
 fn build_project(source_path: &str, run_after: bool, mlir_mode: bool, cross_target: Option<String>, disable_adaptive: bool, export_mutation_log: bool, _arch_blueprint: Option<crate::hardware_matrix::HardwareBlueprint>, tune: bool) {
     let start_total = Instant::now();
     
@@ -984,9 +1057,7 @@ fn build_project(source_path: &str, run_after: bool, mlir_mode: bool, cross_targ
             emit_json_diagnostics(parser.errors());
         } else {
             println!("\n\x1b[31m[ZEUS COMPILATION ABORTED]\x1b[0m Syntax Error");
-            for err in parser.errors() {
-                eprintln!("  {}", err);
-            }
+            print_parse_errors(source_path, &input, parser.errors());
         }
         std::process::exit(1);
     }
@@ -997,8 +1068,8 @@ fn build_project(source_path: &str, run_after: bool, mlir_mode: bool, cross_targ
     for stmt in program.statements {
         if let Statement::Import(path) = stmt {
             let mut std_path = source_dir.join(format!("std/{}.zs", path.replace(".", "/")));
-            if !std_path.exists() {
-                if let Ok(cwd) = std::env::current_dir() {
+            if !std_path.exists()
+                && let Ok(cwd) = std::env::current_dir() {
                     let alt_path = cwd.join(format!("std/{}.zs", path.replace(".", "/")));
                     if alt_path.exists() {
                         std_path = alt_path;
@@ -1007,7 +1078,6 @@ fn build_project(source_path: &str, run_after: bool, mlir_mode: bool, cross_targ
                         if alt_path2.exists() { std_path = alt_path2; }
                     }
                 }
-            }
             if std_path.exists() {
                 let std_input = fs::read_to_string(&std_path).unwrap();
                 let std_lexer = Lexer::new(&std_input);
@@ -1030,9 +1100,7 @@ fn build_project(source_path: &str, run_after: bool, mlir_mode: bool, cross_targ
 
     if !parser.errors().is_empty() {
         eprintln!("\n\x1b[31m[ZEUS COMPILATION ABORTED]\x1b[0m Syntax Error");
-        for err in parser.errors() {
-            eprintln!("  {}", err);
-        }
+        print_parse_errors(source_path, &input, parser.errors());
         std::process::exit(1);
     }
     
@@ -1040,7 +1108,10 @@ fn build_project(source_path: &str, run_after: bool, mlir_mode: bool, cross_targ
     oram::flatten_memory_accesses(&mut program);
     let d_oram = t_oram.elapsed();
     println!(" \x1b[36m🔀 ORAM Memory Flattening Pipeline\x1b[0m     [ \x1b[1;37m{:>6.0}µs\x1b[0m ] [ \x1b[32m██████████\x1b[0m ] 100%", d_oram.as_micros());
-    
+
+    // Monomorphize generic functions before type analysis
+    mono::monomorphize(&mut program);
+
     let t_analyze = Instant::now();
     // Pass config to SemanticAnalyzer
     let mut analyzer = analyzer::SemanticAnalyzer::new();
@@ -1124,9 +1195,8 @@ fn build_project(source_path: &str, run_after: bool, mlir_mode: bool, cross_targ
         clang_cmd.arg(&c_path);
         // Real optimization by default: vectorizes the SoA/ivdep hot loops.
         clang_cmd.arg("-O3");
-        if cross_target.is_none() {
-            clang_cmd.arg("-march=native");
-        }
+        if cross_target.is_none()
+            && tune { clang_cmd.arg("-march=native"); } // portable by default; native only with --tune
         
         if let Some(arch) = &cross_target {
             println!(" \x1b[35m🚀 Cross-Compiling Target\x1b[0m           [ \x1b[1;37m{}\x1b[0m ]", arch);
@@ -1140,8 +1210,21 @@ fn build_project(source_path: &str, run_after: bool, mlir_mode: bool, cross_targ
             clang_cmd.arg("-c");
         }
         
-        let status = clang_cmd.status().expect("Failed to execute C compiler");
-        
+        let status = match clang_cmd.status() {
+            Ok(s) => s,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                eprintln!("\n\x1b[33m[ZEUS WARNING]\x1b[0m C compiler '{}' not found — .c/.h emitted but not compiled.", cc);
+                eprintln!(" Install clang (https://releases.llvm.org/) or gcc and ensure it is in PATH.");
+                eprintln!(" To suppress compilation pass --emit-c.");
+                // Still print Build Success for the Zeus side
+                println!("─────────────────────────────────────────────────────────────────────────");
+                println!(" \x1b[1;32m📦 Build Success:\x1b[0m \x1b[1;37m{}.c\x1b[0m (Zeus→C ok; link skipped — no C compiler)", base_name);
+                println!(" \x1b[33m🔋 Est. Energy Footprint: \x1b[32m{:.2} mJ\x1b[0m / invocation\n", energy_mj);
+                check_energy_high_score(energy_mj);
+                return;
+            }
+            Err(e) => { eprintln!("\n\x1b[31m[ZEUS ERROR]\x1b[0m Failed to run C compiler: {}", e); std::process::exit(1); }
+        };
         if !status.success() {
             eprintln!("\n\x1b[31m[ZEUS ERROR]\x1b[0m Clang Compilation Failed.");
             std::process::exit(1);
@@ -1211,11 +1294,10 @@ fn build_project(source_path: &str, run_after: bool, mlir_mode: bool, cross_targ
         collect_ct(&program.statements, &mut required);
         let mut ct_violations = Vec::new();
         for name in &required {
-            if let Some(pf) = zir_report.per_fn.iter().find(|f| &f.name == name) {
-                if !pf.constant_time {
+            if let Some(pf) = zir_report.per_fn.iter().find(|f| &f.name == name)
+                && !pf.constant_time {
                     ct_violations.push(format!("fn {}: @constant_time declared but a secret-dependent timing channel was found (see ZIR leak sinks)", name));
                 }
-            }
         }
         if !ct_violations.is_empty() {
             eprintln!("\n\x1b[31m[ZEUS CONSTANT-TIME VIOLATION]\x1b[0m:");
@@ -1372,6 +1454,7 @@ fn test_project(source_path: &str) {
             statements.push(Statement::FunctionDeclaration {
                 is_pub: false,
                 name: func_name,
+                type_params: vec![],
                 parameters: vec![],
                 secret_params: vec![],
                 return_type: None,
@@ -1400,6 +1483,7 @@ fn test_project(source_path: &str) {
     statements.push(Statement::FunctionDeclaration {
         is_pub: true,
         name: "main".to_string(),
+        type_params: vec![],
         parameters: vec![],
         secret_params: vec![],
         return_type: None,
@@ -1456,12 +1540,11 @@ fn generate_docs(source_path: &str) {
 
     doc_content.push_str("## API Signatures\n");
     for stmt in &program.statements {
-        if let Statement::FunctionDeclaration { is_pub, name, parameters: _, return_type, .. } = stmt {
-            if *is_pub {
+        if let Statement::FunctionDeclaration { is_pub, name, parameters: _, return_type, .. } = stmt
+            && *is_pub {
                 let ret = return_type.as_ref().map(|t| format!("{:?}", t)).unwrap_or("void".to_string());
                 doc_content.push_str(&format!("### `pub fn {}(...) -> {}`\n", name, ret));
             }
-        }
     }
 
     let out_path = source_path.replace(".zs", "_audit.md");
@@ -1482,8 +1565,8 @@ fn verify_project(source_path: &str, is_medical_mode: bool) {
     for stmt in program.statements {
         if let Statement::Import(path) = stmt {
             let mut std_path = source_dir.join(format!("std/{}.zs", path.replace(".", "/")));
-            if !std_path.exists() {
-                if let Ok(cwd) = std::env::current_dir() {
+            if !std_path.exists()
+                && let Ok(cwd) = std::env::current_dir() {
                     let alt_path = cwd.join(format!("std/{}.zs", path.replace(".", "/")));
                     if alt_path.exists() {
                         std_path = alt_path;
@@ -1492,7 +1575,6 @@ fn verify_project(source_path: &str, is_medical_mode: bool) {
                         if alt_path2.exists() { std_path = alt_path2; }
                     }
                 }
-            }
             if std_path.exists() {
                 let std_input = fs::read_to_string(&std_path).unwrap();
                 let std_lexer = Lexer::new(&std_input);

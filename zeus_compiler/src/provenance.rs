@@ -1,3 +1,4 @@
+#![allow(clippy::collapsible_if, clippy::collapsible_else_if, clippy::map_unwrap_or, clippy::needless_bool)]
 //! provenance.rs -- SLSA v1.0 build provenance as a signed in-toto Statement.
 //!
 //! Every successful build emits `<base>.provenance.json`: an in-toto Statement

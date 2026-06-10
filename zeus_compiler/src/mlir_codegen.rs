@@ -1,3 +1,4 @@
+#![allow(clippy::collapsible_if, clippy::collapsible_else_if, clippy::map_unwrap_or, clippy::needless_bool)]
 use crate::ast::{Expression, Program, Statement, Type};
 
 pub struct MlirCodegen {

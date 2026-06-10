@@ -1,3 +1,4 @@
+#![allow(clippy::useless_format)]
 use crate::ast::{Program, Statement, Expression};
 
 pub struct EnergyProfiler {
@@ -71,7 +72,7 @@ impl EnergyProfiler {
                 let total_loop_cost = loop_iterations * (body_cost + 0.5); // 0.5 mJ overhead per iteration for branches
                 
                 warnings.push(format!("[WARNING] Scalar `for` loop detected with O(N) energy footprint (Estimated: {:.2} mJ per invocation).", total_loop_cost));
-                warnings.push(format!("[RECOMMENDATION] Consider vectorizing this operation inside a `parallel` block."));
+                warnings.push("[RECOMMENDATION] Consider vectorizing this operation inside a `parallel` block.".to_string());
                 
                 total_loop_cost
             }

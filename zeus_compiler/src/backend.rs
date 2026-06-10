@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use crate::ast::Program;
 
 /// Represents a compiled artifact ready for execution or saving.

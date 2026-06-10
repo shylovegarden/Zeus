@@ -1,3 +1,4 @@
+#![allow(clippy::collapsible_if, clippy::collapsible_else_if, clippy::map_unwrap_or, clippy::needless_bool)]
 //! cert_sign.rs -- Ed25519 signing/verification for Zeus trust certificates.
 //!
 //! The .zcert already carries a SHA-256 content hash of the source. This module
@@ -8,7 +9,7 @@
 //! Key handling (offline, no network) -- PERSISTENT, STABLE IDENTITY:
 //!   * The keypair lives in ONE stable directory so every build on a machine
 //!     signs with the SAME identity (so a cert verifies across directories):
-//!         $ZEUS_KEY_DIR  ->  $HOME/.zeus  ->  $USERPROFILE/.zeus  ->  "."(cwd)
+//!     $ZEUS_KEY_DIR  ->  $HOME/.zeus  ->  $USERPROFILE/.zeus  ->  "."(cwd)
 //!     private key `zeus.key` (hex seed, 0600), public key `zeus.pub` (hex).
 //!   * Override the signing seed directly with env ZEUS_SIGNING_KEY (32-byte hex).
 //!   * Verification ALWAYS checks the signature against the cert's embedded
@@ -34,7 +35,7 @@ fn hex_encode(bytes: &[u8]) -> String {
 
 fn hex_decode(s: &str) -> Option<Vec<u8>> {
     let s = s.trim();
-    if s.len() % 2 != 0 { return None; }
+    if !s.len().is_multiple_of(2) { return None; }
     let mut out = Vec::with_capacity(s.len() / 2);
     let bytes = s.as_bytes();
     let mut i = 0;

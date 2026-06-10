@@ -1,3 +1,4 @@
+#![allow(clippy::enum_variant_names)]
 #[derive(Debug, PartialEq, Clone)]
 pub struct Program {
     pub statements: Vec<Statement>,
@@ -17,6 +18,8 @@ pub enum Type {
     Unknown(String),
     Result(Box<Type>, Box<Type>),
     Pointer(Box<Type>),
+    /// A generic type parameter, e.g. `T` in `fn foo<T>(x: T) -> T`.
+    TypeParam(String),
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -32,10 +35,14 @@ pub enum Statement {
         name: String,
         is_component: bool,
         fields: Vec<(String, Type)>,
+        /// Generic type parameters, e.g. `["T", "E"]` for `struct Foo<T, E>`.
+        type_params: Vec<String>,
     },
     FunctionDeclaration {
         is_pub: bool,
         name: String,
+        /// Generic type parameters, e.g. `["T"]` for `fn foo<T>`.
+        type_params: Vec<String>,
         parameters: Vec<(String, Type)>,
         secret_params: Vec<String>,
         return_type: Option<Type>,
@@ -105,6 +112,24 @@ pub enum Statement {
         target: String,
         amount: String,
     },
+    /// `enum Color { Red, Green, Rgb(i32, i32, i32) }`
+    EnumDeclaration {
+        name: String,
+        variants: Vec<EnumVariantDef>,
+    },
+    /// `match expr { ... }`
+    MatchStatement {
+        scrutinee: Expression,
+        arms: Vec<MatchArm>,
+    },
+}
+
+/// One variant in an enum declaration
+#[derive(Debug, PartialEq, Clone)]
+pub struct EnumVariantDef {
+    pub name: String,
+    /// None = unit variant, Some(types) = tuple variant
+    pub payload: Option<Vec<Type>>,
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -167,4 +192,35 @@ pub enum Expression {
         bound: usize,
     },
     ArrayLiteral(Vec<Expression>),
+    /// Enum variant constructor: `Color::Red` or `Color::Rgb(1, 2, 3)`
+    EnumVariant {
+        enum_name: String,
+        variant: String,
+        payload: Vec<Expression>,
+    },
+    /// Match expression
+    MatchExpr {
+        scrutinee: Box<Expression>,
+        arms: Vec<MatchArm>,
+    },
+}
+
+/// One arm of a match: `Pattern => { body }`
+#[derive(Debug, PartialEq, Clone)]
+pub struct MatchArm {
+    pub pattern: MatchPattern,
+    pub body: Vec<Statement>,
+}
+
+/// Patterns supported in match arms
+#[derive(Debug, PartialEq, Clone)]
+pub enum MatchPattern {
+    /// `Color::Red` — unit variant, no bindings
+    Variant { enum_name: String, variant: String },
+    /// `Color::Rgb(r, g, b)` — tuple variant with binding names
+    VariantTuple { enum_name: String, variant: String, bindings: Vec<String> },
+    /// `_` — wildcard
+    Wildcard,
+    /// literal number
+    Literal(f64),
 }

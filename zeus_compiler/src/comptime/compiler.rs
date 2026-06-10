@@ -1,3 +1,4 @@
+#![allow(clippy::collapsible_if, clippy::collapsible_else_if, clippy::map_unwrap_or, clippy::needless_bool)]
 use crate::ast::{Expression, Statement};
 use crate::vm::opcode::Opcode;
 use std::collections::HashMap;
@@ -6,6 +7,12 @@ pub struct BytecodeCompiler {
     pub bytecode: Vec<u8>,
     pub constants: Vec<f64>,
     pub var_map: HashMap<String, usize>,
+}
+
+impl Default for BytecodeCompiler {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl BytecodeCompiler {

@@ -1,3 +1,4 @@
+#![allow(clippy::collapsible_if, clippy::collapsible_else_if, clippy::map_unwrap_or, clippy::needless_bool)]
 use crate::ast::{Program, Statement, Expression};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -15,6 +16,17 @@ struct ValueRange {
     max: f64,
 }
 
+/// Pretty-print a constant-folded range for proof messages: a clean scalar when
+/// the range is a single value (e.g. `5`), otherwise an interval.
+fn fmt_vr(r: &ValueRange) -> String {
+    if (r.min - r.max).abs() < f64::EPSILON {
+        if r.min.is_finite() && r.min.fract() == 0.0 { format!("{}", r.min as i64) }
+        else { format!("{}", r.min) }
+    } else {
+        format!("[{}, {}]", r.min, r.max)
+    }
+}
+
 pub struct FormalVerifier {
     constants: HashMap<String, f64>,
     z3_available: bool,
@@ -22,6 +34,7 @@ pub struct FormalVerifier {
     cache: HashMap<String, CacheEntry>,
     cache_path: PathBuf,
     cache_dirty: bool,
+    bounds: HashMap<String, ValueRange>,
 }
 
 impl FormalVerifier {
@@ -58,6 +71,7 @@ impl FormalVerifier {
             cache,
             cache_path,
             cache_dirty: false,
+            bounds: HashMap::new(),
         }
     }
 
@@ -132,17 +146,6 @@ impl FormalVerifier {
             Statement::Assert(expr) => {
                 self.prove_assertion(expr)?;
             }
-            Statement::If { condition, consequence, alternative } => {
-                // Very basic branching: just verify statements inside
-                for s in consequence {
-                    self.verify_statement(s)?;
-                }
-                if let Some(alt) = alternative {
-                    for s in alt {
-                        self.verify_statement(s)?;
-                    }
-                }
-            }
             _ => {}
         }
         Ok(())
@@ -156,10 +159,16 @@ impl FormalVerifier {
                 let l = self.evaluate_bounds(left)?;
                 let r = self.evaluate_bounds(right)?;
                 match operator.as_str() {
-                    "Plus"  => Some(l + r),
-                    "Minus" => Some(l - r),
-                    "Star"  => Some(l * r),
-                    "Slash" if r != 0.0 => Some(l / r),
+                    "Plus"  => Some(ValueRange { min: l.min + r.min, max: l.max + r.max }),
+                    "Minus" => Some(ValueRange { min: l.min - r.max, max: l.max - r.min }),
+                    "Star"  => {
+                        let a = l.min * r.min; let b = l.min * r.max; let c = l.max * r.min; let d = l.max * r.max;
+                        Some(ValueRange { min: a.min(b).min(c).min(d), max: a.max(b).max(c).max(d) })
+                    },
+                    "Slash" if r.min > 0.0 || r.max < 0.0 => {
+                        let a = l.min / r.min; let b = l.min / r.max; let c = l.max / r.min; let d = l.max / r.max;
+                        Some(ValueRange { min: a.min(b).min(c).min(d), max: a.max(b).max(c).max(d) })
+                    },
                     _ => None,
                 }
             }
@@ -187,14 +196,14 @@ impl FormalVerifier {
             let l_bounds = self.evaluate_bounds(left);
             let r_bounds = self.evaluate_bounds(right);
 
-            if let (Some(l), Some(r)) = (l_val, r_val) {
+            if let (Some(l), Some(r)) = (l_bounds, r_bounds) {
                 let is_proven = match operator.as_str() {
-                    "LessThan"    => l < r,
-                    "GreaterThan" => l > r,
-                    "Equal"       => (l - r).abs() < f64::EPSILON,
-                    "GreaterEqual"=> l >= r,
-                    "LessEqual"   => l <= r,
-                    "NotEqual"    => (l - r).abs() >= f64::EPSILON,
+                    "LessThan"    => l.max < r.min,
+                    "GreaterThan" => l.min > r.max,
+                    "Equal"       => (l.max - r.min).abs() < f64::EPSILON && (l.min - r.max).abs() < f64::EPSILON,
+                    "GreaterEqual"=> l.min >= r.max,
+                    "LessEqual"   => l.max <= r.min,
+                    "NotEqual"    => l.max < r.min || l.min > r.max,
                     _ => {
                         println!("[ZEUS WARNING] Skipping assertion with operator '{}': not a static comparison.", operator);
                         return Ok(());
@@ -204,10 +213,10 @@ impl FormalVerifier {
                 if !is_proven {
                     return Err(format!(
                         "Mathematical Proof Failed: {} {} {} is FALSE at compile time",
-                        l, operator, r
+                        fmt_vr(&l), operator, fmt_vr(&r)
                     ));
                 }
-                println!("[ZEUS VERIFIED] Mathematically proven: {} {} {}", l, operator, r);
+                println!("[ZEUS VERIFIED] Mathematically proven: {} {} {}", fmt_vr(&l), operator, fmt_vr(&r));
                 return Ok(());
             }
 

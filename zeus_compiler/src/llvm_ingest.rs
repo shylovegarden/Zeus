@@ -1,3 +1,4 @@
+#![allow(clippy::collapsible_if, clippy::collapsible_else_if, clippy::map_unwrap_or, clippy::needless_bool)]
 //! llvm_ingest.rs -- "The Lens" on LLVM IR. Ingests textual LLVM IR (.ll) and runs
 //! Zeus's secret-taint leak analysis on it, so Zeus can audit code that was NOT
 //! written in Zeus (e.g. C/C++/Rust via `clang -emit-llvm -S`).
@@ -111,6 +112,7 @@ fn parse_call(raw: &str) -> (Option<String>, Vec<Option<String>>) {
     let bytes = raw.as_bytes();
     let mut depth = 0i32;
     let mut end = raw.len();
+    #[allow(clippy::needless_range_loop)]
     for i in lp..raw.len() {
         match bytes[i] as char { '(' => depth += 1, ')' => { depth -= 1; if depth == 0 { end = i; break; } }, _ => {} }
     }
@@ -277,7 +279,7 @@ fn run(f: &Func, seed: &dyn Fn(usize) -> Origins, summaries: &HashMap<String, Su
 
                 let entry = value.entry(dst.clone()).or_default();
                 let before = entry.len();
-                entry.extend(o.into_iter());
+                entry.extend(o);
                 if entry.len() != before { changed = true; }
             } else if inst.op == "store" {
                 let mut it = inst.raw.splitn(2, ',');

@@ -1,0 +1,5 @@
+# Pin the toolchain so every build (and CI) is reproducible.
+[toolchain]
+channel = "stable"
+components = ["rustfmt", "clippy"]
+profile = "minimal"
