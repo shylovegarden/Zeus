@@ -37,6 +37,7 @@ pub enum Statement {
         is_pub: bool,
         name: String,
         parameters: Vec<(String, Type)>,
+        secret_params: Vec<String>,
         return_type: Option<Type>,
         body: Vec<Statement>,
         attributes: Vec<FunctionAttribute>,
@@ -54,6 +55,10 @@ pub enum Statement {
         iterator: String,
         start: Expression,
         end: Expression,
+        body: Vec<Statement>,
+    },
+    While {
+        condition: Expression,
         body: Vec<Statement>,
     },
     Assert(Expression),
@@ -105,8 +110,13 @@ pub enum Statement {
 #[derive(Debug, PartialEq, Clone)]
 pub enum FunctionAttribute {
     Verify(Expression, bool), // expression, has_timed_out
+    Requires(Expression, bool), // precondition (runtime-checked at entry)
+    Ensures(Expression, bool),  // postcondition (may reference reserved `result`)
     Adaptive(String), // The raw parameter content for simplicity
     FfiExport,
+    Wcet(u64),  // @wcet(N): declared worst-case execution-time bound (steps)
+    Stack(u64), // @stack(N): declared stack-size bound (bytes)
+    ConstantTime, // @constant_time: function must have no secret-dependent timing channel
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -119,6 +129,11 @@ pub enum Expression {
         left: Box<Expression>,
         operator: String,
         right: Box<Expression>,
+    },
+
+    Prefix {
+        operator: String,
+        operand: Box<Expression>,
     },
     
     TensorDefinition {
@@ -150,4 +165,5 @@ pub enum Expression {
         base: Box<Expression>,
         index: Box<Expression>,
     },
+    ArrayLiteral(Vec<Expression>),
 }

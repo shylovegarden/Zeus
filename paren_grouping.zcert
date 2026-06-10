@@ -1,0 +1,9 @@
+{
+  "zeus_certificate":"v1",
+  "source":"./tests/cases/paren_grouping.zs",
+  "source_sha256":"b9475225c91e2f60f76c5ddc7581a31e5c4b90313b282cc231173823359e11de",
+  "zero_heap":true,
+  "functions":[
+    {"name":"main","reproducible":true,"constant_time":true,"wcet_steps":20,"stack_bytes":88}
+  ]
+}

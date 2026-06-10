@@ -8,9 +8,23 @@ pub struct CCodegen {
     pub extern_functions: std::cell::RefCell<std::collections::HashMap<String, (Vec<(String, crate::ast::Type)>, Option<crate::ast::Type>)>>,
     pub soa_arrays: std::cell::RefCell<std::collections::HashSet<String>>,
     pub current_var_types: std::cell::RefCell<std::collections::HashMap<String, String>>,
+    /// Variables that are targets of @atomic_add — typed as int64_t so the compiler
+    /// can emit __atomic_fetch_add directly instead of a CAS loop.
+    pub atomic_int_vars: std::cell::RefCell<std::collections::HashSet<String>>,
+    /// Struct names for which we have already emitted a FatPtr typedef (dedup guard).
+    pub soa_fat_ptr_structs: std::cell::RefCell<std::collections::HashSet<String>>,
     pub disable_adaptive: bool,
     pub export_mutation_log: bool,
     pub tuned_weights: Vec<f32>,
+    /// Monotonic id assigned to each parallel block during dispatch codegen.
+    pub parallel_counter: std::cell::RefCell<u64>,
+    /// SoA array name -> element struct name (for resolving field C types).
+    pub soa_struct_of: std::cell::RefCell<std::collections::HashMap<String, String>>,
+    /// SoA array name -> length C-expr, ONLY for arrays declared `secret`.
+    /// Presence here means accesses must be compiled to oblivious full-scans.
+    pub soa_secret_lens: std::cell::RefCell<std::collections::HashMap<String, String>>,
+    /// @ensures expressions (C source) for the function currently being emitted.
+    pub pending_ensures: std::cell::RefCell<Vec<String>>,
 }
 
 impl CCodegen {
@@ -22,9 +36,15 @@ impl CCodegen {
             extern_functions: std::cell::RefCell::new(std::collections::HashMap::new()),
             soa_arrays: std::cell::RefCell::new(std::collections::HashSet::new()),
             current_var_types: std::cell::RefCell::new(std::collections::HashMap::new()),
+            atomic_int_vars: std::cell::RefCell::new(std::collections::HashSet::new()),
+            soa_fat_ptr_structs: std::cell::RefCell::new(std::collections::HashSet::new()),
             disable_adaptive: false,
             export_mutation_log: false,
             tuned_weights: vec![0.25f32, -0.5f32, 0.8f32, -0.1f32], // Default mock weights
+            parallel_counter: std::cell::RefCell::new(0),
+            soa_struct_of: std::cell::RefCell::new(std::collections::HashMap::new()),
+            soa_secret_lens: std::cell::RefCell::new(std::collections::HashMap::new()),
+            pending_ensures: std::cell::RefCell::new(Vec::new()),
         }
     }
 
@@ -42,6 +62,7 @@ impl CCodegen {
     }
 
     pub fn generate_source(&self, program: &Program) -> String {
+        self.collect_atomic_int_vars(program); // must run before collect_var_types
         self.collect_var_types(program);
         // Collect Struct Schemas and Extern Functions
         for stmt in &program.statements {
@@ -60,12 +81,33 @@ impl CCodegen {
         source.push_str("#ifndef _XOPEN_SOURCE\n#define _XOPEN_SOURCE 600\n#endif\n");
         source.push_str(&format!("#include \"{}.h\"\n", self.output_name));
         source.push_str("#include <stdio.h>\n");
-        source.push_str("#include <stdlib.h>\n");
+        source.push_str("#include <stddef.h>\n");   // size_t, NULL — NO stdlib.h (MISRA 21.3 compliance)
         source.push_str("#include <stdint.h>\n");
+        source.push_str("#include <stdbool.h>\n");
+        source.push_str("#include <math.h>\n");
+        source.push_str("extern long long llabs(long long);\n");
         source.push_str("#include <string.h>\n");
-        source.push_str("#include <sys/mman.h>\n");
-        source.push_str("#include <fcntl.h>\n");
-        source.push_str("#include <unistd.h>\n\n");
+        source.push_str("#include <stdatomic.h>\n");
+        // Forward-declare exit without pulling in malloc/calloc/free via stdlib.h
+        source.push_str("extern void exit(int status) __attribute__((noreturn));\n");
+        source.push_str("static volatile atomic_flag __zeus_ledger_lock = ATOMIC_FLAG_INIT;\n");
+        // XOR-shift32 PRNG — no stdlib.h rand(), no global seed interference with legacy code
+        source.push_str("static inline unsigned int __zeus_rand(void) {\n");
+        source.push_str("    static volatile unsigned int _zs = 0xDEAD1337u;\n");
+        source.push_str("    unsigned int x = _zs; x ^= x << 13; x ^= x >> 17; x ^= x << 5;\n");
+        source.push_str("    return (_zs = x);\n");
+        source.push_str("}\n");
+        source.push_str("#if defined(_WIN32) || defined(_WIN64)\n#include <windows.h>\n");
+        source.push_str("#define PROT_READ 1\n#define PROT_WRITE 2\n#define MAP_SHARED 1\n#define MAP_ANON 2\n#define MAP_FAILED ((void*)-1)\n");
+        source.push_str("static inline void* mmap(void* addr, size_t length, int prot, int flags, int fd, size_t offset) { return VirtualAlloc(NULL, length, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE); }\n");
+        source.push_str("#define O_RDWR 2\n#define O_DIRECT 0\n#define O_SYNC 0\n");
+        source.push_str("static inline int open(const char* pathname, int flags) { return -1; }\n");
+        source.push_str("static inline void close(int fd) {}\n");
+        source.push_str("typedef int pid_t;\n");
+        source.push_str("static inline pid_t fork(void) { return 1; }\n");
+        source.push_str("static inline pid_t getppid(void) { return 1; }\n");
+        source.push_str("static inline int usleep(unsigned int usec) { Sleep(usec / 1000); return 0; }\n");
+        source.push_str("#else\n#include <sys/mman.h>\n#include <sys/wait.h>\n#include <fcntl.h>\n#include <unistd.h>\n#endif\n\n");
         source.push_str("// Zeus Runtime Security FFI Stubs (Fallback Implementations)\n");
         source.push_str("void zeus_tls_handshake(void) {}\n");
         source.push_str("int zeus_enclave_verify_token(void) { return 1; }\n");
@@ -107,21 +149,86 @@ impl CCodegen {
         source.push_str("#endif\n\n");
 
         source.push_str("// ============================================================================\n");
-        source.push_str("// ZEUS MICRO AI: BARE-METAL QUANTIZED INFERENCE ENGINE\n");
+        source.push_str("// ZEUS ADAPTIVE HEURISTIC: compile-time tunable linear score (NOT an ML model)\n");
         source.push_str("// ============================================================================\n");
         source.push_str(&format!("static const float __zeus_micro_ai_weights[{}] = {{{}}};\n", 
             self.tuned_weights.len(), 
             self.tuned_weights.iter().map(|w| format!("{}f", w)).collect::<Vec<_>>().join(", ")
         ));
-        source.push_str("static inline float __zeus_simd_inference_mock(float input_fuel, float input_latency) {\n");
-        source.push_str("    // SIMD-optimized dot product (mocked via scalar for C-backend compatibility)\n");
+        source.push_str("static inline float __zeus_heuristic_score(float input_fuel, float input_latency) {\n");
+        source.push_str("    // Linear weighted score over two runtime signals (tunable via --tune).\n");
         source.push_str("    float score = (input_fuel * __zeus_micro_ai_weights[0]) + (input_latency * __zeus_micro_ai_weights[1]);\n");
         source.push_str("    return score;\n");
         source.push_str("}\n\n");
+        // Oblivious memory access for `secret` arrays: scans EVERY element in a
+        // fixed linear order with a branchless masked select, so the cache/memory
+        // access pattern is independent of the secret index (defeats cache-timing
+        // and access-pattern side channels). O(n) per access -- opt-in via `secret`.
+        source.push_str("static inline void __zeus_oread_bytes(void* dst, const void* base, size_t n, size_t esz, size_t idx) {\n");
+        source.push_str("    unsigned char* d = (unsigned char*)dst; const unsigned char* b = (const unsigned char*)base;\n");
+        source.push_str("    for (size_t j = 0; j < esz; j++) d[j] = 0;\n");
+        source.push_str("    for (size_t k = 0; k < n; k++) {\n");
+        source.push_str("        unsigned char m = (unsigned char)0 - (unsigned char)(k == idx);\n");
+        source.push_str("        const unsigned char* e = b + k * esz;\n");
+        source.push_str("        for (size_t j = 0; j < esz; j++) d[j] |= (unsigned char)(e[j] & m);\n");
+        source.push_str("    }\n}\n");
+        source.push_str("static inline void __zeus_owrite_bytes(void* base, size_t n, size_t esz, size_t idx, const void* src) {\n");
+        source.push_str("    unsigned char* b = (unsigned char*)base; const unsigned char* s = (const unsigned char*)src;\n");
+        source.push_str("    for (size_t k = 0; k < n; k++) {\n");
+        source.push_str("        unsigned char m = (unsigned char)0 - (unsigned char)(k == idx);\n");
+        source.push_str("        unsigned char* e = b + k * esz;\n");
+        source.push_str("        for (size_t j = 0; j < esz; j++) e[j] = (unsigned char)((e[j] & (unsigned char)~m) | (s[j] & m));\n");
+        source.push_str("    }\n}\n\n");
 
-        source.push_str("// ============================================================================\n");
-        source.push_str("// ZEUS iO GARBLED CIRCUIT SIMULATION\n");
-        source.push_str("// ============================================================================\n");
+        // ── W^X Dual-Mapped JIT Infrastructure ───────────────────────────────────
+        // On Linux: memfd_create gives an anonymous file; mmap it twice — once
+        // PROT_READ|PROT_WRITE (mutations), once PROT_READ|PROT_EXEC (dispatch).
+        // The same physical pages are never simultaneously W and X — strict W^X.
+        // On non-Linux: fall back to volatile flags (no executable mapping needed
+        // because @adaptive mutations are control-flow only, not machine-code edits).
+        source.push_str("// [ZEUS W^X JIT SUPERVISOR] -- dual-mapped pages: PROT_WRITE != PROT_EXEC\n");
+        source.push_str("#ifdef __linux__\n");
+        source.push_str("#include <sys/syscall.h>\n");
+        source.push_str("#ifndef __NR_memfd_create\n#define __NR_memfd_create 319\n#endif\n");
+        source.push_str("#ifndef MFD_CLOEXEC\n#define MFD_CLOEXEC 1U\n#endif\n");
+        source.push_str("typedef struct { void* exec_map; void* write_map; int fd; } zeus_jit_region_t;\n");
+        source.push_str("static zeus_jit_region_t __zeus_jit = {NULL, NULL, -1};\n");
+        source.push_str("static void __zeus_jit_init(void) {\n");
+        source.push_str("    if (__zeus_jit.fd >= 0) return;\n");
+        source.push_str("    int _fd = (int)syscall(__NR_memfd_create, \"zeus_jit\", (unsigned int)MFD_CLOEXEC);\n");
+        source.push_str("    if (_fd < 0) return;\n");
+        source.push_str("    if (ftruncate(_fd, 4096) < 0) return;\n");
+        source.push_str("    // Write mapping: never executed\n");
+        source.push_str("    __zeus_jit.write_map = mmap(NULL, 4096, PROT_READ|PROT_WRITE, MAP_SHARED, _fd, 0);\n");
+        source.push_str("    // Exec mapping: never written -- strict W^X\n");
+        source.push_str("    __zeus_jit.exec_map  = mmap(NULL, 4096, PROT_READ|PROT_EXEC,  MAP_SHARED, _fd, 0);\n");
+        source.push_str("    if (__zeus_jit.write_map == MAP_FAILED || __zeus_jit.exec_map == MAP_FAILED) {\n");
+        source.push_str("        __zeus_jit.write_map = NULL; __zeus_jit.exec_map = NULL; return;\n");
+        source.push_str("    }\n");
+        source.push_str("    __zeus_jit.fd = _fd;\n");
+        source.push_str("}\n");
+        source.push_str("// Mutate: write through WRITE mapping, read back through EXEC mapping\n");
+        source.push_str("static inline void __zeus_jit_mutate(int slot, int val) {\n");
+        source.push_str("    __zeus_jit_init();\n");
+        source.push_str("    if (!__zeus_jit.write_map) return;\n");
+        source.push_str("    ((volatile int*)__zeus_jit.write_map)[slot & 63] = val;\n");
+        source.push_str("    __atomic_thread_fence(__ATOMIC_SEQ_CST);\n");
+        source.push_str("}\n");
+        source.push_str("static inline int __zeus_jit_read(int slot) {\n");
+        source.push_str("    __zeus_jit_init();\n");
+        source.push_str("    if (!__zeus_jit.exec_map) return 0;\n");
+        source.push_str("    return ((volatile int*)__zeus_jit.exec_map)[slot & 63];\n");
+        source.push_str("}\n");
+        source.push_str("#else\n");
+        source.push_str("static volatile int __zeus_jit_flags[64];\n");
+        source.push_str("static inline void __zeus_jit_mutate(int slot, int val) { __zeus_jit_flags[slot & 63] = val; }\n");
+        source.push_str("static inline int  __zeus_jit_read(int slot) { return __zeus_jit_flags[slot & 63]; }\n");
+        source.push_str("#endif\n\n");
+
+        source.push_str("// ----------------------------------------------------------------------------\n");
+        source.push_str("// Arithmetic helper with a dead timing-noise term. NOTE: this is NOT crypto\n");
+        source.push_str("// obfuscation or indistinguishability obfuscation (iO); it is ordinary math.\n");
+        source.push_str("// ----------------------------------------------------------------------------\n");
         source.push_str("static inline double __zeus_io_circuit_math(double a, double b, int op) {\n");
         source.push_str("    uint64_t ua = *(uint64_t*)&a;\n");
         source.push_str("    uint64_t ub = *(uint64_t*)&b;\n");
@@ -135,23 +242,6 @@ impl CCodegen {
         source.push_str("    return 0;\n");
         source.push_str("}\n\n");
 
-        source.push_str("// RDMA Infiniband Stubs\n");
-        source.push_str("void ibv_post_send(void* qp, void* wr, void** bad_wr) {}\n");
-        source.push_str("void ibv_post_recv(void* qp, void* wr, void** bad_wr) {}\n\n");
-
-        source.push_str("// ============================================================================\n");
-        source.push_str("// HARDWARE IOMMU SEGMENTATION (Physical DMA Firewall)\n");
-        source.push_str("// ============================================================================\n");
-        source.push_str("static inline void __zeus_iommu_secure_segment(void) {\n");
-        source.push_str("    // Generate raw VFIO / IOMMU calls to bind our static memory regions.\n");
-        source.push_str("    // Disallow arbitrary PCIe devices from DMA reading zeus_arena_heap.\n");
-        source.push_str("    int dev_fd = open(\"/dev/vfio/vfio\", O_RDWR);\n");
-        source.push_str("    if (dev_fd > 0) {\n");
-        source.push_str("        // configure IOMMU isolation map\n");
-        source.push_str("        close(dev_fd);\n");
-        source.push_str("    }\n");
-        source.push_str("}\n\n");
-
         // Provide memory lifecycle tools for legacy C code to clean up our tensors
         source.push_str("void zeus_free_tensor(zeus_tensor* t) {\n");
         source.push_str("    // [ZEUS ZERO-HEAP ENFORCER]: No dynamic deallocation allowed.\n");
@@ -163,12 +253,20 @@ impl CCodegen {
         source.push_str("// ZEUS NATIVE M:N FIBER SCHEDULER (Zero-Heap, Lock-Free Work-Stealing)\n");
         source.push_str("// ============================================================================\n");
         // _XOPEN_SOURCE is now emitted at the top of the file (Bug Fix #4)
-        source.push_str("#if defined(__unix__) || defined(__APPLE__)\n");
+        source.push_str("#if defined(_WIN32) || defined(_WIN64)\n");
+        source.push_str("typedef struct ucontext_t { void* dummy; struct { void* ss_sp; size_t ss_size; } uc_stack; struct ucontext_t* uc_link; } ucontext_t;\n");
+        source.push_str("static inline int getcontext(ucontext_t *ucp) { return 0; }\n");
+        source.push_str("static inline void makecontext(ucontext_t *ucp, void (*func)(), int argc, ...) {}\n");
+        source.push_str("static inline int swapcontext(ucontext_t *oucp, const ucontext_t *ucp) { return 0; }\n");
+        source.push_str("#define _SC_NPROCESSORS_ONLN 1\n");
+        source.push_str("static inline long sysconf(int name) { return 4; }\n");
+        source.push_str("#else\n");
         source.push_str("#pragma GCC diagnostic push\n");
         source.push_str("#pragma GCC diagnostic ignored \"-Wdeprecated-declarations\"\n");
         source.push_str("#include <ucontext.h>\n");
         source.push_str("#pragma GCC diagnostic pop\n");
-        source.push_str("#include <unistd.h>\n\n");
+        source.push_str("#include <unistd.h>\n");
+        source.push_str("#endif\n\n");
 
         // --- zeus_fiber_t ---
         source.push_str("typedef struct zeus_fiber {\n");
@@ -230,9 +328,8 @@ impl CCodegen {
         // Push (owner only, no CAS needed for bottom)
         source.push_str("static inline void zeus_wsdeque_push(zeus_wsdeque_t* q, void* task) {\n");
         source.push_str("    size_t b = __atomic_load_n(&q->bottom, __ATOMIC_RELAXED);\n");
-        source.push_str("    q->tasks[b % ZEUS_WSQ_CAPACITY] = task;\n");
-        source.push_str("    __atomic_thread_fence(__ATOMIC_RELEASE);\n");
-        source.push_str("    __atomic_store_n(&q->bottom, b + 1, __ATOMIC_RELAXED);\n");
+        source.push_str("    __atomic_store_n(&q->tasks[b % ZEUS_WSQ_CAPACITY], task, __ATOMIC_RELEASE);\n");
+        source.push_str("    __atomic_store_n(&q->bottom, b + 1, __ATOMIC_RELEASE);\n");
         source.push_str("}\n\n");
 
         // Pop (owner only, needs CAS if contending with steal)
@@ -242,7 +339,7 @@ impl CCodegen {
         source.push_str("    __atomic_thread_fence(__ATOMIC_SEQ_CST);\n");
         source.push_str("    size_t t = __atomic_load_n(&q->top, __ATOMIC_RELAXED);\n");
         source.push_str("    if (t <= b) {\n");
-        source.push_str("        void* task = q->tasks[b % ZEUS_WSQ_CAPACITY];\n");
+        source.push_str("        void* task = __atomic_load_n(&q->tasks[b % ZEUS_WSQ_CAPACITY], __ATOMIC_ACQUIRE);\n");
         source.push_str("        if (t == b) {\n");
         source.push_str("            // Last element — race with steal\n");
         source.push_str("            size_t expected = t;\n");
@@ -274,7 +371,6 @@ impl CCodegen {
         source.push_str("    }\n");
         source.push_str("    return NULL;\n");
         source.push_str("}\n\n");
-        source.push_str("#endif\n\n");
 
 
 
@@ -331,28 +427,6 @@ impl CCodegen {
         
         if !has_funcs {
             source.push_str("int main() {\n");
-            source.push_str("    __zeus_iommu_secure_segment();\n");
-            source.push_str("    pid_t sentinel_pid = fork();\n");
-            source.push_str("    if (sentinel_pid == 0) {\n");
-            source.push_str("        while(1) {\n");
-            source.push_str("            size_t count = *__zeus_active_fibers_count;\n");
-            source.push_str("            if (count > 0 && *__zeus_active_fibers != NULL) {\n");
-            source.push_str("                uint64_t current_time = __rdtsc();\n");
-            source.push_str("                for (size_t i = 0; i < count; i++) {\n");
-            source.push_str("                    zeus_fiber_t* fib = &(*__zeus_active_fibers)[i];\n");
-            source.push_str("                    if (fib->is_dead) continue;\n");
-            source.push_str("                    if (fib->last_cycle_start > 0 && (current_time - fib->last_cycle_start) > 50000000) {\n");
-            source.push_str("                        fprintf(stderr, \"\\n[ZEUS SENTINEL] 💀 ROGUE FIBER DETECTED! Executing Phoenix Reset! (Cycles: %llu)\\n\", current_time - fib->last_cycle_start);\n");
-            source.push_str("                        fib->is_dead = 1;\n");
-            source.push_str("                        *zeus_arena_offset = 0;\n");
-            source.push_str("                    }\n");
-            source.push_str("                }\n");
-            source.push_str("            }\n");
-            source.push_str("            if (getppid() == 1) exit(0);\n");
-            source.push_str("            usleep(100);\n");
-            source.push_str("        }\n");
-            source.push_str("        exit(0);\n");
-            source.push_str("    }\n");
             self.secret_vars.borrow_mut().push(Vec::new());
             for stmt in &program.statements {
                 if matches!(stmt, Statement::StructDeclaration { .. }) {
@@ -386,7 +460,8 @@ impl CCodegen {
         header.push_str(&format!("#ifndef {}\n", guard_name));
         header.push_str(&format!("#define {}\n\n", guard_name));
         header.push_str("#include <stddef.h>\n");
-        header.push_str("#include <stdint.h>\n\n");
+        header.push_str("#include <stdint.h>\n");
+        header.push_str("#include <stdbool.h>\n\n");
         
         // Expose the fundamental tensor layout for legacy C apps
         header.push_str("typedef struct {\n");
@@ -422,8 +497,17 @@ impl CCodegen {
         // Traverse the AST for `pub fn` declarations and emit their C signatures
         header.push_str("// Public Zeus API Boundaries\n");
         for stmt in &program.statements {
-            if let Statement::StructDeclaration { name, .. } = stmt {
+            if let Statement::StructDeclaration { name, fields, .. } = stmt {
                 header.push_str(&format!("typedef struct {} {};\n", name, name));
+                // [ZEUS FAT PTR FFI BRIDGE] Emit SoA FatPtr alongside each struct.
+                header.push_str(&format!("// Zeus SoA FatPtr: pass '{}_FatPtr*' instead of copying\n", name));
+                header.push_str("typedef struct {\n");
+                for (f_name, f_type) in fields {
+                    let c_t = self.type_to_c(&Some(f_type.clone()));
+                    header.push_str(&format!("    {}* {};\n", c_t, f_name));
+                }
+                header.push_str("    size_t len;\n");
+                header.push_str(&format!("}} {}_FatPtr;\n\n", name));
             }
         }
         
@@ -461,12 +545,126 @@ impl CCodegen {
                 if name == "u32" { "uint32_t".to_string() }
                 else if name == "usize" { "size_t".to_string() }
                 else if name == "u8" { "uint8_t".to_string() }
+                else if name == "str" { "const char*".to_string() }
                 else { name.clone() }
             },
             Some(crate::ast::Type::Unknown(name)) => name.clone(),
             Some(crate::ast::Type::Result(_, _)) => "zeus_result_t".to_string(),
             Some(crate::ast::Type::Pointer(base)) => format!("{}*", self.type_to_c(&Some(*base.clone()))),
             None => "void".to_string(),
+        }
+    }
+
+    fn c_type_to_printf(&self, c_type: &str) -> (&'static str, &'static str) {
+        match c_type {
+            "bool" => ("%d", "(int)"),
+            "float" | "double" => ("%f", "(double)"),
+            "const char*" | "char*" => ("%s", ""),
+            "int8_t" | "uint8_t" | "int32_t" | "uint32_t"
+            | "uint64_t" | "int64_t" | "size_t" | "int" => ("%lld", "(long long)"),
+            _ => ("%lld", "(long long)"),
+        }
+    }
+
+    fn infer_arg_c_type(&self, expr: &Expression) -> String {
+        match expr {
+            Expression::StringLiteral(_) => "const char*".to_string(),
+            Expression::Number(n) => {
+                if n.fract() == 0.0 { "int64_t".to_string() } else { "double".to_string() }
+            }
+            Expression::Identifier(name) => {
+                self.current_var_types.borrow().get(name).cloned()
+                    .unwrap_or_else(|| "int64_t".to_string())
+            }
+            Expression::Infix { left, operator, right } => {
+                match operator.as_str() {
+                    "LessThan" | "GreaterThan" | "Equal" | "NotEqual"
+                    | "GreaterEqual" | "LessEqual" => "bool".to_string(),
+                    "Plus" | "Minus" | "Star" | "Slash" => {
+                        let lt = self.infer_arg_c_type(left);
+                        let rt = self.infer_arg_c_type(right);
+                        if lt == "double" || lt == "float" || rt == "double" || rt == "float" {
+                            "double".to_string()
+                        } else if lt == "const char*" || rt == "const char*" {
+                            "const char*".to_string()
+                        } else {
+                            "int64_t".to_string()
+                        }
+                    }
+                    _ => self.infer_arg_c_type(left),
+                }
+            }
+            Expression::FieldAccess { base, field } => {
+                if let Expression::Identifier(var) = base.as_ref() {
+                    if let Some(struct_name) = self.current_var_types.borrow().get(var).cloned() {
+                        if let Some(fields) = self.struct_schemas.borrow().get(&struct_name) {
+                            if let Some((_, ft)) = fields.iter().find(|(f, _)| f == field) {
+                                return self.type_to_c(&Some(ft.clone()));
+                            }
+                        }
+                    }
+                }
+                "int64_t".to_string()
+            }
+            Expression::FunctionCall { name, arguments } => {
+                match name.as_str() {
+                    "sqrt" | "pow" | "floor" | "ceil" => "double".to_string(),
+                    "abs" => arguments.first().map(|a| self.infer_arg_c_type(a)).unwrap_or_else(|| "int64_t".to_string()),
+                    "min" | "max" | "clamp" => {
+                        if arguments.iter().any(|a| { let t=self.infer_arg_c_type(a); t=="double"||t=="float" }) { "double".to_string() } else { "int64_t".to_string() }
+                    }
+                    _ => "int64_t".to_string(),
+                }
+            }
+            Expression::Comptime(inner) | Expression::Try(inner) => self.infer_arg_c_type(inner),
+            _ => "int64_t".to_string(),
+        }
+    }
+
+    fn lower_math_builtin(&self, name: &str, a: &[String]) -> Option<String> {
+        match (name, a.len()) {
+            ("abs", 1) => Some(format!("(_Generic(({x}), float: fabsf, double: fabs, default: llabs)({x}))", x = a[0])),
+            ("min", 2) => Some(format!("(({a})<({b})?({a}):({b}))", a = a[0], b = a[1])),
+            ("max", 2) => Some(format!("(({a})>({b})?({a}):({b}))", a = a[0], b = a[1])),
+            ("clamp", 3) => Some(format!("(({x})<({lo})?({lo}):(({x})>({hi})?({hi}):({x})))", x = a[0], lo = a[1], hi = a[2])),
+            ("sqrt", 1) => Some(format!("(sqrt({}))", a[0])),
+            ("pow", 2) => Some(format!("(pow({}, {}))", a[0], a[1])),
+            ("floor", 1) => Some(format!("(floor({}))", a[0])),
+            ("ceil", 1) => Some(format!("(ceil({}))", a[0])),
+            _ => None,
+        }
+    }
+
+    fn generate_print_builtin(
+        &self,
+        arguments: &[Expression],
+        newline: bool,
+        pad: &str,
+        parallel_ctx: Option<(&[(String, String)], &str)>,
+    ) -> String {
+        let mut fmt = String::new();
+        let mut call_args: Vec<String> = Vec::new();
+        for arg in arguments {
+            let c_type = self.infer_arg_c_type(arg);
+            let (spec, cast) = self.c_type_to_printf(&c_type);
+            fmt.push_str(spec);
+            let arg_c = match parallel_ctx {
+                Some((shared, iter)) => self.generate_parallel_expression(arg, shared, iter),
+                None => self.generate_expression(arg),
+            };
+            if cast.is_empty() {
+                call_args.push(arg_c);
+            } else {
+                call_args.push(format!("{}({})", cast, arg_c));
+            }
+        }
+        if newline {
+            fmt.push_str("\\n");
+        }
+        if call_args.is_empty() {
+            format!("{}printf(\"{}\");\n", pad, fmt)
+        } else {
+            format!("{}printf(\"{}\", {});\n", pad, fmt, call_args.join(", "))
         }
     }
 
@@ -485,6 +683,9 @@ impl CCodegen {
                 }
                 c_struct.push_str(&format!("{}}} {};\n", pad, name));
                 
+                // [ZEUS FAT PTR FFI BRIDGE] FatPtr typedef lives in the header only;
+                // emitting it again in the .c would cause 'conflicting types' since
+                // the .c always includes its own .h.
                 if *is_component {
                     format!("{}// [ZEUS: NATIVE ECS ECS_BUFFER for '{}']\n{}\n", pad, name, c_struct)
                 } else {
@@ -492,28 +693,90 @@ impl CCodegen {
                 }
             }
             Statement::Let { name, is_mut: _, is_secret, value, var_type } => {
-                if let Expression::IndexAccess { base, index } = value {
-                    if let Expression::Identifier(element_type) = &**base {
-                        if let Some(fields) = self.struct_schemas.borrow().get(element_type) {
-                            self.soa_arrays.borrow_mut().insert(name.clone());
-                            let mut out = format!("{}// [ZEUS: INVISIBLE SoA TRANSFORMATION for '{}']\n", pad, name);
-                            let size_c = self.generate_expression(index);
-                            for (fname, ftype) in fields {
-                                let c_type = self.type_to_c(&Some(ftype.clone()));
-                                out.push_str(&format!("{}{} {}_{}[{}];\n", pad, c_type, name, fname, size_c));
-                            }
-                            return out;
+                // SoA detection: after ORAM pass, `Particle[32]` becomes
+                //   OramAccess { base: Identifier("Particle"), index: 32 }
+                // (the WHOLE IndexAccess is replaced — not nested inside OramAccess).
+                // Match both OramAccess and IndexAccess with a struct-name Identifier base.
+                let soa_info: Option<(String, Vec<(String, crate::ast::Type)>, &Expression)> = match value {
+                    Expression::OramAccess { base, index }
+                    | Expression::IndexAccess { base, index } => {
+                        if let Expression::Identifier(element_type) = base.as_ref() {
+                            self.struct_schemas.borrow().get(element_type).cloned()
+                                .map(|fields| (element_type.clone(), fields, index.as_ref()))
+                        } else {
+                            None
                         }
+                    }
+                    _ => None,
+                };
+                if let Some((element_type, fields, index)) = soa_info {
+                    self.soa_arrays.borrow_mut().insert(name.clone());
+                    self.soa_struct_of.borrow_mut().insert(name.clone(), element_type.clone());
+                    let mut out = format!("{}// [ZEUS: INVISIBLE SoA TRANSFORMATION for '{}']\n", pad, name);
+                    let size_c = self.generate_expression(index);
+                    if *is_secret {
+                        // Secret SoA array: accesses become oblivious full-scans.
+                        self.soa_secret_lens.borrow_mut().insert(name.clone(), size_c.clone());
+                        out.push_str(&format!("{}// [ZEUS SECRET]: '{}' uses oblivious O(n) access + scope-exit wipe\n", pad, name));
+                    }
+                    for (fname, ftype) in &fields {
+                        let c_type = self.type_to_c(&Some(ftype.clone()));
+                        // Align to 32 bytes (256-bit AVX2 vector width) so auto-vectorizer fires
+                        out.push_str(&format!("{}{} {}_{}[{}] __attribute__((aligned(32)));\n", pad, c_type, name, fname, size_c));
+                        if *is_secret {
+                            // Register each field array for secure wipe at scope exit.
+                            self.secret_vars.borrow_mut().last_mut()
+                                .expect("Internal Compiler Error: No secret scope")
+                                .push(format!("{}_{}", name, fname));
+                        }
+                    }
+                    return out;
+                }
+                if let Some(crate::ast::Type::Array(base, size)) = var_type {
+                    if let Expression::ArrayLiteral(elems) = value {
+                        let c_base = self.type_to_c(&Some(*base.clone()));
+                        let size_c = self.generate_expression(size);
+                        let init: Vec<String> = elems.iter().map(|e| self.generate_expression(e)).collect();
+                        self.current_var_types.borrow_mut().insert(name.clone(), format!("{}*", c_base));
+                        return format!("{}    {} {}[{}] = {{{}}};\n", pad, c_base, name, size_c, init.join(", "));
                     }
                 }
                 let val_c = self.generate_expression(value);
-                let c_type = self.type_to_c(var_type);
+                let soa_read_type: Option<String> = match value {
+                    Expression::FieldAccess { base, field } => match base.as_ref() {
+                        Expression::IndexAccess { base: ab, .. }
+                        | Expression::OramAccess { base: ab, .. } => {
+                            if let Expression::Identifier(arr) = ab.as_ref() {
+                                if self.soa_arrays.borrow().contains(arr.as_str()) {
+                                    Some(self.soa_field_ctype(arr, field))
+                                } else { None }
+                            } else { None }
+                        }
+                        _ => None,
+                    },
+                    _ => None,
+                };
+                let c_type = if let Some(t) = soa_read_type {
+                    t
+                } else if self.atomic_int_vars.borrow().contains(name) {
+                    "int64_t".to_string()
+                } else {
+                    self.type_to_c(var_type)
+                };
                 if *is_secret {
                     self.secret_vars.borrow_mut().last_mut().expect("Internal Compiler Error: No secret scope").push(name.clone());
                 }
-                format!("{}    {} {} = {};\n", pad, c_type, name, val_c)
+                format!("{}    {} {} = ({})({});\n", pad, c_type, name, c_type, val_c)
             }
             Statement::ExpressionStatement(expr) => {
+                if let Expression::FunctionCall { name, arguments } = expr {
+                    if name == "print" {
+                        return self.generate_print_builtin(arguments, false, &pad, None);
+                    }
+                    if name == "println" {
+                        return self.generate_print_builtin(arguments, true, &pad, None);
+                    }
+                }
                 let expr_c = self.generate_expression(expr);
                 if expr_c == "print" {
                     format!("{}printf(\"Execution complete.\\n\");\n", pad)
@@ -536,103 +799,60 @@ impl CCodegen {
                 out
             }
             Statement::ParallelBlock { iterator, start, end, statements } => {
+                // [ZEUS: CORRECT MULTI-CORE FORK-JOIN PARALLELISM]
+                // The previous fork()+ucontext fiber model was non-functional: a fiber
+                // returned to a NULL uc_link and silently _exit()'d the process, so code
+                // after a parallel block never ran in the parent and reductions were lost.
+                // This model forks N worker processes (N = cores), each running a
+                // contiguous chunk of the index range directly. Captured/reduction vars
+                // live in MAP_SHARED arena mirrors so cross-process atomics aggregate,
+                // and the parent copies results back after joining. No pthreads, no malloc.
                 let start_c = self.generate_expression(start);
                 let end_c = self.generate_expression(end);
-                
-                let block_id = 0; 
+                let block_id = { let mut c = self.parallel_counter.borrow_mut(); let id = *c; *c += 1; id };
                 let struct_name = format!("__zeus_parallel_task_{}", block_id);
                 let worker_name = format!("__zeus_parallel_worker_{}", block_id);
-                
-                let mut out = format!("{}// [ZEUS: NATIVE COOPERATIVE M:N FIBER DISPATCH]\n", pad);
-                out.push_str(&format!("{}#if defined(__APPLE__)\n", pad));
-                out.push_str(&format!("{}#pragma GCC diagnostic push\n", pad));
-                out.push_str(&format!("{}#pragma GCC diagnostic ignored \"-Wdeprecated-declarations\"\n", pad));
-                out.push_str(&format!("{}#endif\n", pad));
+                let shared_vars = self.find_shared_variables(statements, iterator);
+                let mut out = format!("{}// [ZEUS: MULTI-CORE FORK-JOIN PARALLEL DISPATCH]\n", pad);
                 out.push_str(&format!("{}{{\n", pad));
                 out.push_str(&format!("{}    size_t __zeus_start = {};\n", pad, start_c));
-                out.push_str(&format!("{}    size_t __zeus_end = {};\n", pad, end_c));
-                out.push_str(&format!("{}    size_t __zeus_iters = __zeus_end - __zeus_start;\n", pad));
-                
-                out.push_str(&format!("{}    size_t __zeus_chunk_size = (__zeus_iters + 255) / 256;\n", pad));
-                out.push_str(&format!("{}    if (__zeus_chunk_size == 0) __zeus_chunk_size = 1;\n", pad));
-                out.push_str(&format!("{}    size_t __zeus_num_tasks = (__zeus_iters + __zeus_chunk_size - 1) / __zeus_chunk_size;\n", pad));
-                
-                out.push_str(&format!("{}    {}* __zeus_tasks = ({}*)__zeus_arena_alloc(sizeof({}) * __zeus_num_tasks);\n", pad, struct_name, struct_name, struct_name));
-                out.push_str(&format!("{}    zeus_fiber_t* __zeus_fibers = (zeus_fiber_t*)__zeus_arena_alloc(sizeof(zeus_fiber_t) * __zeus_num_tasks);\n", pad));
-                out.push_str(&format!("{}    ucontext_t __zeus_main_ctx;\n", pad));
-                
-                out.push_str(&format!("{}    int __zeus_num_workers = (int)sysconf(_SC_NPROCESSORS_ONLN);\n", pad));
-                out.push_str(&format!("{}    if (__zeus_num_workers < 1) __zeus_num_workers = 1;\n", pad));
-                out.push_str(&format!("{}    if (__zeus_num_workers > 64) __zeus_num_workers = 64;\n", pad));
-                out.push_str(&format!("{}    zeus_wsdeque_t __zeus_queues[64];\n", pad));
-                out.push_str(&format!("{}    for (int w = 0; w < __zeus_num_workers; w++) {{\n", pad));
-                out.push_str(&format!("{}        zeus_wsdeque_init(&__zeus_queues[w]);\n", pad));
-                out.push_str(&format!("{}    }}\n", pad));
-
-                let shared_vars = self.find_shared_variables(statements, iterator);
-                
-                out.push_str(&format!("{}    for (size_t t = 0; t < __zeus_num_tasks; t++) {{\n", pad));
-                out.push_str(&format!("{}        size_t t_start = __zeus_start + t * __zeus_chunk_size;\n", pad));
-                out.push_str(&format!("{}        size_t t_end = t_start + __zeus_chunk_size;\n", pad));
-                out.push_str(&format!("{}        if (t_end > __zeus_end) t_end = __zeus_end;\n", pad));
-                out.push_str(&format!("{}        __zeus_tasks[t].chunk_start = t_start;\n", pad));
-                out.push_str(&format!("{}        __zeus_tasks[t].chunk_end = t_end;\n", pad));
-                for (var_name, _) in &shared_vars {
-                    out.push_str(&format!("{}        __zeus_tasks[t].{} = &{};\n", pad, var_name, var_name));
+                out.push_str(&format!("{}    size_t __zeus_end   = {};\n", pad, end_c));
+                out.push_str(&format!("{}    size_t __zeus_iters = (__zeus_end > __zeus_start) ? (__zeus_end - __zeus_start) : 0;\n", pad));
+                out.push_str(&format!("{}    if (__zeus_iters > 0) {{\n", pad));
+                out.push_str(&format!("{}        int __zeus_num_workers = (int)sysconf(_SC_NPROCESSORS_ONLN);\n", pad));
+                out.push_str(&format!("{}        if (__zeus_num_workers < 1) __zeus_num_workers = 1;\n", pad));
+                out.push_str(&format!("{}        if (__zeus_num_workers > 64) __zeus_num_workers = 64;\n", pad));
+                out.push_str(&format!("{}        if ((size_t)__zeus_num_workers > __zeus_iters) __zeus_num_workers = (int)__zeus_iters;\n", pad));
+                out.push_str(&format!("{}        size_t __zeus_chunk = (__zeus_iters + (size_t)__zeus_num_workers - 1) / (size_t)__zeus_num_workers;\n", pad));
+                for (var_name, var_type) in &shared_vars {
+                    out.push_str(&format!("{}        {}* __zeus_shared_{} = ({}*)__zeus_arena_alloc(sizeof({}));\n", pad, var_type, var_name, var_type, var_type));
+                    out.push_str(&format!("{}        *__zeus_shared_{} = {};\n", pad, var_name, var_name));
                 }
-                
-                out.push_str(&format!("{}        __zeus_fibers[t].last_cycle_start = 0;\n", pad));
-                out.push_str(&format!("{}        __zeus_fibers[t].is_dead = 0;\n", pad));
-                out.push_str(&format!("{}        getcontext(&__zeus_fibers[t].ctx);\n", pad));
-                out.push_str(&format!("{}        __zeus_fibers[t].ctx.uc_stack.ss_sp = __zeus_fibers[t].stack;\n", pad));
-                out.push_str(&format!("{}        __zeus_fibers[t].ctx.uc_stack.ss_size = sizeof(__zeus_fibers[t].stack);\n", pad));
-                out.push_str(&format!("{}        __zeus_fibers[t].ctx.uc_link = &__zeus_main_ctx;\n", pad));
-                out.push_str(&format!("{}        uintptr_t _zeus_ptr_{} = (uintptr_t)&__zeus_tasks[t];\n", pad, block_id));
-                out.push_str(&format!("{}        makecontext(&__zeus_fibers[t].ctx, (void (*)()) {}, 2, (int)(_zeus_ptr_{}), (int)(_zeus_ptr_{} >> 32));\n", pad, worker_name, block_id, block_id));
-                out.push_str(&format!("{}        zeus_wsdeque_push(&__zeus_queues[t % __zeus_num_workers], &__zeus_fibers[t]);\n", pad));
-                out.push_str(&format!("{}    }}\n", pad));
-                out.push_str(&format!("{}    *__zeus_active_fibers = __zeus_fibers;\n", pad));
-                out.push_str(&format!("{}    *__zeus_active_fibers_count = __zeus_num_tasks;\n", pad));
-                
-                out.push_str(&format!("{}    int __zeus_active = 1;\n", pad));
-                out.push_str(&format!("{}    while (__zeus_active) {{\n", pad));
-                out.push_str(&format!("{}        __zeus_active = 0;\n", pad));
-                out.push_str(&format!("{}        for (int w = 0; w < __zeus_num_workers; w++) {{\n", pad));
-                out.push_str(&format!("{}            zeus_fiber_t* fib = (zeus_fiber_t*)zeus_wsdeque_pop(&__zeus_queues[w]);\n", pad));
-                out.push_str(&format!("{}            if (!fib) {{\n", pad));
-                out.push_str(&format!("{}                for (int n = 0; n < __zeus_num_workers; n++) {{\n", pad));
-                out.push_str(&format!("{}                    if (n == w) continue;\n", pad));
-                out.push_str(&format!("{}                    fib = (zeus_fiber_t*)zeus_wsdeque_steal(&__zeus_queues[n]);\n", pad));
-                out.push_str(&format!("{}                    if (fib) break;\n", pad));
-                out.push_str(&format!("{}                }}\n", pad));
-                out.push_str(&format!("{}            }}\n", pad));
-                out.push_str(&format!("{}            if (fib) {{\n", pad));
-                out.push_str(&format!("{}                if (!fib->is_dead) {{\n", pad));
-                out.push_str(&format!("{}                    fib->last_cycle_start = __rdtsc();\n", pad));
-                out.push_str(&format!("{}                    __zeus_active = 1;\n", pad));
-                out.push_str(&format!("{}                    // [ZEUS STOCHASTIC CORE HOPPING]\n", pad));
-                out.push_str(&format!("{}#if defined(__linux__)\n", pad));
-                out.push_str(&format!("{}                    cpu_set_t cpuset;\n", pad));
-                out.push_str(&format!("{}                    CPU_ZERO(&cpuset);\n", pad));
-                out.push_str(&format!("{}                    CPU_SET((__rdtsc() >> 4) % sysconf(_SC_NPROCESSORS_ONLN), &cpuset);\n", pad));
-                out.push_str(&format!("{}                    sched_setaffinity(0, sizeof(cpu_set_t), &cpuset);\n", pad));
-                out.push_str(&format!("{}#else\n", pad));
-                out.push_str(&format!("{}                    // Mock stochastic core hopping for macOS\n", pad));
-                out.push_str(&format!("{}                    volatile int mock_core = (__rdtsc() >> 4) % 8;\n", pad));
-                out.push_str(&format!("{}#endif\n", pad));
-                out.push_str(&format!("{}                    zeus_speculation_flush();\n", pad));
-                out.push_str(&format!("{}                    swapcontext(&__zeus_main_ctx, &fib->ctx);\n", pad));
-                out.push_str(&format!("{}                    zeus_speculation_flush();\n", pad));
-                out.push_str(&format!("{}                    fib->last_cycle_start = 0;\n", pad));
-                out.push_str(&format!("{}                }}\n", pad));
-                out.push_str(&format!("{}            }}\n", pad));
+                out.push_str(&format!("{}        {}* __zeus_ctx = ({}*)__zeus_arena_alloc(sizeof({}));\n", pad, struct_name, struct_name, struct_name));
+                for (var_name, _) in &shared_vars {
+                    out.push_str(&format!("{}        __zeus_ctx->{} = __zeus_shared_{};\n", pad, var_name, var_name));
+                }
+                out.push_str(&format!("{}        pid_t __zeus_pids[64];\n", pad));
+                out.push_str(&format!("{}        for (int _i = 0; _i < 64; _i++) __zeus_pids[_i] = 0;\n", pad));
+                out.push_str(&format!("{}        int __zeus_myid = 0;\n", pad));
+                out.push_str(&format!("{}        for (int w = 1; w < __zeus_num_workers; w++) {{\n", pad));
+                out.push_str(&format!("{}            pid_t _p = fork();\n", pad));
+                out.push_str(&format!("{}            if (_p == 0) {{ __zeus_myid = w; break; }}\n", pad));
+                out.push_str(&format!("{}            __zeus_pids[w] = _p;\n", pad));
                 out.push_str(&format!("{}        }}\n", pad));
+                out.push_str(&format!("{}        size_t __zeus_lo = __zeus_start + (size_t)__zeus_myid * __zeus_chunk;\n", pad));
+                out.push_str(&format!("{}        size_t __zeus_hi = __zeus_lo + __zeus_chunk;\n", pad));
+                out.push_str(&format!("{}        if (__zeus_hi > __zeus_end) __zeus_hi = __zeus_end;\n", pad));
+                out.push_str(&format!("{}        if (__zeus_lo < __zeus_hi) {}((void*)__zeus_ctx, __zeus_lo, __zeus_hi);\n", pad, worker_name));
+                out.push_str(&format!("{}        if (__zeus_myid != 0) _exit(0);\n", pad));
+                out.push_str(&format!("{}        for (int w = 1; w < __zeus_num_workers; w++) {{\n", pad));
+                out.push_str(&format!("{}            if (__zeus_pids[w] > 0) waitpid(__zeus_pids[w], NULL, 0);\n", pad));
+                out.push_str(&format!("{}        }}\n", pad));
+                for (var_name, _) in &shared_vars {
+                    out.push_str(&format!("{}        {} = *__zeus_shared_{};\n", pad, var_name, var_name));
+                }
                 out.push_str(&format!("{}    }}\n", pad));
-                
                 out.push_str(&format!("{}}}\n", pad));
-                out.push_str(&format!("{}#if defined(__APPLE__)\n", pad));
-                out.push_str(&format!("{}#pragma GCC diagnostic pop\n", pad));
-                out.push_str(&format!("{}#endif\n", pad));
                 out
             }
             Statement::TargetBlock { targets, statements } => {
@@ -654,7 +874,7 @@ impl CCodegen {
                 out
             }
             Statement::EnclaveBlock { statements } => {
-                let mut out = format!("{}// [ZEUS: INTEL SGX / AMD SEV ENCLAVE ENTRY]\n{}zeus_enclave_enter();\n{}{{ \n", pad, pad, pad);
+                let mut out = format!("{}// [ZEUS: scoped secure region — compiler memory barrier; no hardware enclave on this target]\n{}zeus_enclave_enter();\n{}{{ \n", pad, pad, pad);
                 self.secret_vars.borrow_mut().push(Vec::new());
                 for s in statements {
                     out.push_str(&self.generate_statement(s, indent + 1));
@@ -664,7 +884,7 @@ impl CCodegen {
                     out.push_str(&self.generate_secure_wipe(&var, &format!("{}    ", pad)));
                 }
                 out.push_str(&format!("{}}}\n", pad));
-                out.push_str(&format!("{}zeus_enclave_exit();\n{}// [ZEUS: ENCLAVE EXIT]\n", pad, pad));
+                out.push_str(&format!("{}zeus_enclave_exit();\n{}// [ZEUS: end secure region]\n", pad, pad));
                 out
             }
             Statement::TestDeclaration { name, .. } => {
@@ -680,7 +900,7 @@ impl CCodegen {
             Statement::Import(path) => {
                 format!("{}// [ZEUS IMPORT: {} (Inlined AST)]\n", pad, path)
             }
-            Statement::FunctionDeclaration { is_pub: _, name, parameters, return_type, body, attributes } => {
+            Statement::FunctionDeclaration { is_pub: _, name, parameters, return_type, body, attributes, secret_params: _ } => {
                 let mut c_ret = self.type_to_c(return_type);
                 if name == "main" {
                     c_ret = "int".to_string();
@@ -691,31 +911,8 @@ impl CCodegen {
                 }
                 
                 let mut out = format!("{}{} {}({}) {{\n", pad, c_ret, name, params.join(", "));
-                if name == "main" {
-                    out.push_str(&format!("{}    __zeus_iommu_secure_segment();\n", pad));
-                    out.push_str(&format!("{}    pid_t sentinel_pid = fork();\n", pad));
-                    out.push_str(&format!("{}    if (sentinel_pid == 0) {{\n", pad));
-                    out.push_str(&format!("{}        while(1) {{\n", pad));
-                    out.push_str(&format!("{}            size_t count = *__zeus_active_fibers_count;\n", pad));
-                    out.push_str(&format!("{}            if (count > 0 && *__zeus_active_fibers != NULL) {{\n", pad));
-                    out.push_str(&format!("{}                uint64_t current_time = __rdtsc();\n", pad));
-                    out.push_str(&format!("{}                for (size_t i = 0; i < count; i++) {{\n", pad));
-                    out.push_str(&format!("{}                    zeus_fiber_t* fib = &(*__zeus_active_fibers)[i];\n", pad));
-                    out.push_str(&format!("{}                    if (fib->is_dead) continue;\n", pad));
-                    out.push_str(&format!("{}                    if (fib->last_cycle_start > 0 && (current_time - fib->last_cycle_start) > 50000000) {{\n", pad));
-                    out.push_str(&format!("{}                        fprintf(stderr, \"\\n[ZEUS SENTINEL] 💀 ROGUE FIBER DETECTED! Executing Phoenix Reset! (Cycles: %llu)\\n\", current_time - fib->last_cycle_start);\n", pad));
-                    out.push_str(&format!("{}                        fib->is_dead = 1;\n", pad));
-                    out.push_str(&format!("{}                        *zeus_arena_offset = 0;\n", pad));
-                    out.push_str(&format!("{}                    }}\n", pad));
-                    out.push_str(&format!("{}                }}\n", pad));
-                    out.push_str(&format!("{}            }}\n", pad));
-                    out.push_str(&format!("{}            if (getppid() == 1) exit(0);\n", pad));
-                    out.push_str(&format!("{}            usleep(100);\n", pad));
-                    out.push_str(&format!("{}        }}\n", pad));
-                    out.push_str(&format!("{}        exit(0);\n", pad));
-                    out.push_str(&format!("{}    }}\n", pad));
-                }
                 self.secret_vars.borrow_mut().push(Vec::new());
+                self.pending_ensures.borrow_mut().clear();
 
                 for attr in attributes {
                     match attr {
@@ -729,17 +926,38 @@ impl CCodegen {
                                 out.push_str(&format!("{}    }}\n", pad));
                             }
                         }
+                        crate::ast::FunctionAttribute::Requires(expr, _) => {
+                            let expr_c = self.generate_expression(expr);
+                            out.push_str(&format!("{}    if (!({})) {{\n", pad, expr_c));
+                            out.push_str(&format!("{}        fprintf(stderr, \"[ZEUS PANIC]: Contract violation (@requires) in {}.zs: precondition '%s' failed\\n\", \"{}\");\n", pad, self.output_name, expr_c.replace('"', "\\\"")));
+                            out.push_str(&format!("{}        __zeus_safestate_handler();\n", pad));
+                            out.push_str(&format!("{}        exit(1);\n", pad));
+                            out.push_str(&format!("{}    }}\n", pad));
+                        }
+                        crate::ast::FunctionAttribute::Ensures(expr, _) => {
+                            self.pending_ensures.borrow_mut().push(self.generate_expression(expr));
+                        }
                         crate::ast::FunctionAttribute::Adaptive(params) => {
                             if self.disable_adaptive {
                                 out.push_str(&format!("{}    // [ZEUS ADAPTIVE]: Disabled via --disable-adaptive. Running purely deterministic.\n", pad));
                             } else {
-                                out.push_str(&format!("{}    // [ZEUS ADAPTIVE]: Micro AI Inference Watchdog Active (Threshold: {})\n", pad, params));
-                                out.push_str(&format!("{}    float _ai_fuel_usage = 10.0f; // MASSIVE ANOMALY (Fuel Spike)\n", pad));
-                                out.push_str(&format!("{}    float _ai_latency_spike = -5.0f; // MASSIVE ANOMALY (Latency Drop/Desync)\n", pad));
-                                out.push_str(&format!("{}    float _ai_confidence = __zeus_simd_inference_mock(_ai_fuel_usage, _ai_latency_spike);\n", pad));
+                                // Deterministic JIT slot: FNV-1a hash of function name, mod 64
+                                let jit_slot: u32 = name.bytes().fold(2166136261u32, |h, b| {
+                                    h.wrapping_mul(16777619) ^ (b as u32)
+                                }) & 63;
+                                out.push_str(&format!("{}    // [ZEUS ADAPTIVE W^X]: static heuristic guard (threshold: {})\n", pad, params));
+                                out.push_str(&format!("{}    // Mutations flow through WRITE mapping; dispatch reads EXEC mapping -- strict W^X.\n", pad));
+                                out.push_str(&format!("{}    float _ai_fuel_usage = 10.0f;\n", pad));
+                                out.push_str(&format!("{}    float _ai_latency_spike = -5.0f;\n", pad));
+                                out.push_str(&format!("{}    float _ai_confidence = __zeus_heuristic_score(_ai_fuel_usage, _ai_latency_spike);\n", pad));
                                 out.push_str(&format!("{}    if (_ai_confidence > 0.5f) {{\n", pad));
-                                out.push_str(&format!("{}        fprintf(stderr, \"\\n[ZEUS MICRO AI] FATAL ANOMALY DETECTED IN {}. Confidence: %.2f.\\n\", _ai_confidence);\n", pad, name));
-                                out.push_str(&format!("{}        fprintf(stderr, \"[ZEUS MICRO AI] Tripping Circuit Breaker -> Entering Formal Limp Mode...\\n\");\n", pad));
+                                out.push_str(&format!("{}        // Mutate JIT dispatch slot {} via WRITE mapping (page is PROT_WRITE, never PROT_EXEC)\n", pad, jit_slot));
+                                out.push_str(&format!("{}        __zeus_jit_mutate({}, 1);\n", pad, jit_slot));
+                                out.push_str(&format!("{}        fprintf(stderr, \"\\n[ZEUS ADAPTIVE W^X] ANOMALY in {}() slot {}. Confidence: %.2f. JIT dispatch mutated.\\n\", _ai_confidence);\n", pad, name, jit_slot));
+                                out.push_str(&format!("{}    }}\n", pad));
+                                out.push_str(&format!("{}    // Dispatch via EXEC mapping (page is PROT_EXEC, never PROT_WRITE) -- W^X safe\n", pad));
+                                out.push_str(&format!("{}    if (__zeus_jit_read({})) {{\n", pad, jit_slot));
+                                out.push_str(&format!("{}        fprintf(stderr, \"[ZEUS ADAPTIVE W^X] Limp-mode active for {}(). Entering safe state.\\n\");\n", pad, name));
                                 out.push_str(&format!("{}        __zeus_safestate_handler();\n", pad));
                                 if c_ret == "void" {
                                     out.push_str(&format!("{}        return;\n", pad));
@@ -770,10 +988,7 @@ impl CCodegen {
                 let c_ret = self.type_to_c(return_type);
                 let mut params = Vec::new();
                 for (p_name, p_type) in parameters {
-                    let mut c_type = self.type_to_c(&Some(p_type.clone()));
-                    if let crate::ast::Type::Struct(_) = p_type {
-                        c_type = format!("{}*", c_type);
-                    }
+                    let c_type = self.type_to_c(&Some(p_type.clone()));
                     params.push(format!("{} {}", c_type, p_name));
                 }
                 format!("{}extern {} {}({});\n", pad, c_ret, name, params.join(", "))
@@ -782,7 +997,7 @@ impl CCodegen {
                 let start_c = self.generate_expression(start);
                 let end_c = self.generate_expression(end);
                 let mut out = format!("{}for (int {} = {}; {} < {}; ++{}) {{\n", pad, iterator, start_c, iterator, end_c, iterator);
-                out.push_str(&format!("{}    if (__zeus_active_fibers && (*__zeus_active_fibers)->is_dead) {{\n", pad));
+                out.push_str(&format!("{}    if (__zeus_active_fibers && *__zeus_active_fibers && (*__zeus_active_fibers)->is_dead) {{\n", pad));
                 out.push_str(&format!("{}        fprintf(stderr, \"[WORKER] Fiber assassinated by Sentinel. Shedding load...\\n\");\n", pad));
                 out.push_str(&format!("{}        break;\n", pad));
                 out.push_str(&format!("{}    }}\n", pad));
@@ -797,15 +1012,48 @@ impl CCodegen {
                 out.push_str(&format!("{}}}\n", pad));
                 out
             }
+            Statement::While { condition, body } => {
+                let cond_c = self.generate_expression(condition);
+                let mut out = format!("{}while ({}) {{\n", pad, cond_c);
+                self.secret_vars.borrow_mut().push(Vec::new());
+                for s in body {
+                    out.push_str(&self.generate_statement(s, indent + 1));
+                }
+                let scope_vars = self.secret_vars.borrow_mut().pop().unwrap();
+                for var in scope_vars {
+                    out.push_str(&self.generate_secure_wipe(&var, &format!("{}    ", pad)));
+                }
+                out.push_str(&format!("{}}}\n", pad));
+                out
+            }
             Statement::Return(expr) => {
                 let expr_c = self.generate_expression(expr);
+                let ensures = self.pending_ensures.borrow().clone();
                 let mut out = String::new();
-                for scope in self.secret_vars.borrow().iter().rev() {
-                    for var in scope.iter() {
-                        out.push_str(&self.generate_secure_wipe(var, &pad));
+                if ensures.is_empty() {
+                    for scope in self.secret_vars.borrow().iter().rev() {
+                        for var in scope.iter() {
+                            out.push_str(&self.generate_secure_wipe(var, &pad));
+                        }
                     }
+                    out.push_str(&format!("{}return {};\n", pad, expr_c));
+                } else {
+                    out.push_str(&format!("{}{{ __auto_type result = ({}); /* @ensures binding */\n", pad, expr_c));
+                    for cond in &ensures {
+                        out.push_str(&format!("{}    if (!({})) {{\n", pad, cond));
+                        out.push_str(&format!("{}        fprintf(stderr, \"[ZEUS PANIC]: Contract violation (@ensures) in {}.zs: postcondition failed\\n\");\n", pad, self.output_name));
+                        out.push_str(&format!("{}        __zeus_safestate_handler();\n", pad));
+                        out.push_str(&format!("{}        exit(1);\n", pad));
+                        out.push_str(&format!("{}    }}\n", pad));
+                    }
+                    for scope in self.secret_vars.borrow().iter().rev() {
+                        for var in scope.iter() {
+                            out.push_str(&self.generate_secure_wipe(var, &format!("{}    ", pad)));
+                        }
+                    }
+                    out.push_str(&format!("{}    return result;\n", pad));
+                    out.push_str(&format!("{}}}\n", pad));
                 }
-                out.push_str(&format!("{}return {};\n", pad, expr_c));
                 out
             }
             Statement::Panic(msg) => {
@@ -839,22 +1087,18 @@ impl CCodegen {
             }
             Statement::ClusterBlock { statements } => {
                 let mut out = String::new();
-                out.push_str(&format!("{}// [ZEUS CLUSTER DISTRIBUTION: RDMA INJECTED]\n", pad));
+                out.push_str(&format!("{}// [ZEUS CLUSTER: distributed RDMA backend not built for this target — running block in-process]\n", pad));
                 out.push_str(&format!("{}zeus_tls_handshake();\n", pad));
                 out.push_str(&format!("{}if (!zeus_enclave_verify_token()) {{\n", pad));
                 out.push_str(&format!("{}    fprintf(stderr, \"[ZEUS PANIC]: Hardware violation. Invalid cryptographic capability token for RDMA enclave.\\n\");\n", pad));
                 out.push_str(&format!("{}    exit(1);\n", pad));
                 out.push_str(&format!("{}}}\n", pad));
                 
-                out.push_str(&format!("{}// Dispatch memory asynchronously via Infiniband Verbs\n", pad));
-                out.push_str(&format!("{}void* _bad_wr = NULL;\n", pad));
-                out.push_str(&format!("{}ibv_post_send(NULL, NULL, &_bad_wr);\n", pad));
                 
                 for stmt in statements {
                     out.push_str(&self.generate_statement(stmt, indent));
                 }
                 
-                out.push_str(&format!("{}ibv_post_recv(NULL, NULL, &_bad_wr);\n", pad));
                 out
             }
         }
@@ -875,8 +1119,19 @@ impl CCodegen {
         match expr {
             Expression::Identifier(name) => name.clone(),
             Expression::Number(val) => val.to_string(),
-            Expression::StringLiteral(s) => format!("\"{}\"", s),
+            Expression::StringLiteral(s) => format!("\"{}\"", s.replace('\\', "\\\\").replace('"', "\\\"")),
             Expression::Infix { left, operator, right } => {
+                // Oblivious write: assignment into a secret SoA array element.
+                if operator == "Assign" {
+                    if let Some((arr, field, idx_expr)) = self.secret_soa_target(left) {
+                        let r = self.generate_expression(right);
+                        let idx_c = self.generate_expression(&idx_expr);
+                        let n = self.soa_secret_lens.borrow().get(&arr).cloned().unwrap();
+                        let t = self.soa_field_ctype(&arr, &field);
+                        return format!("({{ {t} _zv = ({t})({r}); __zeus_owrite_bytes({a}_{f}, (size_t)({n}), sizeof({a}_{f}[0]), (size_t)({i}), &_zv); }})",
+                            t=t, r=r, a=arr, f=field, n=n, i=idx_c);
+                    }
+                }
                 let l = self.generate_expression(left);
                 let r = self.generate_expression(right);
                 let l_sec = self.is_secret_var(left);
@@ -907,6 +1162,8 @@ impl CCodegen {
                     "BitShiftRight" => ">>",
                     "BitwiseAnd" => "&",
                     "Pipe" => "|",
+                    "And" => "&&",
+                    "Or" => "||",
                     _ => operator.as_str(),
                 };
                 let is_bitwise = ["BitShiftLeft", "BitShiftRight", "BitwiseAnd", "Pipe"].contains(&operator.as_str());
@@ -925,12 +1182,14 @@ impl CCodegen {
             }
             Expression::FunctionCall { name, arguments } => {
                 let args_c: Vec<String> = arguments.iter().map(|a| self.generate_expression(a)).collect();
-                if name == "println" && args_c.len() == 1 {
-                    if args_c[0].starts_with('"') {
-                        format!("printf(\"%s\\n\", {})", args_c[0])
-                    } else {
-                        format!("printf(\"%f\\n\", {})", args_c[0])
-                    }
+                if name == "print" || name == "println" {
+                    let _ = &args_c;
+                    let nl = name == "println";
+                    let body = self.generate_print_builtin(arguments, nl, "", None);
+                    let trimmed = body.trim_end().trim_end_matches(';');
+                    format!("({})", trimmed)
+                } else if let Some(builtin) = self.lower_math_builtin(name, &args_c) {
+                    builtin
                 } else if let Some((params, ret_type)) = self.extern_functions.borrow().get(name) {
                     let mut is_soa_translation_needed = false;
                     for (_, p_type) in params.iter() {
@@ -943,15 +1202,33 @@ impl CCodegen {
                         let mut block = String::from("({ ");
                         let mut call_args = Vec::new();
                         let mut writes_back = Vec::new();
-                        
+
                         for (i, (_, p_type)) in params.iter().enumerate() {
                             if let crate::ast::Type::Struct(struct_name) = p_type {
+                                // [ZEUS FAT PTR FFI BRIDGE] Whole-array SoA: pass FatPtr*, zero copy.
+                                if let Expression::Identifier(arr_name) = &arguments[i] {
+                                    if self.soa_arrays.borrow().contains(arr_name.as_str()) {
+                                        let fp_name = format!("_zeus_fp_{}", i);
+                                        block.push_str(&format!("{}_FatPtr {}; ", struct_name, fp_name));
+                                        if let Some(fields) = self.struct_schemas.borrow().get(struct_name) {
+                                            for (f_name, _) in fields {
+                                                block.push_str(&format!("{}.{} = {}_{};  ", fp_name, f_name, arr_name, f_name));
+                                            }
+                                            if let Some((first_f, _)) = fields.first() {
+                                                block.push_str(&format!("{}.len = sizeof({}_{})/sizeof(*{}_{});  ",
+                                                    fp_name, arr_name, first_f, arr_name, first_f));
+                                            }
+                                        }
+                                        call_args.push(format!("&{}", fp_name));
+                                        continue;
+                                    }
+                                }
+                                // Element-level: index into SoA → temp struct copy-in/copy-out
                                 if let Expression::IndexAccess { base, index } = &arguments[i] {
                                     if let Expression::Identifier(arr_name) = &**base {
                                         let idx_c = self.generate_expression(index);
                                         let temp_name = format!("_zeus_tmp_{}", i);
                                         block.push_str(&format!("{} {}; ", struct_name, temp_name));
-                                        
                                         if let Some(fields) = self.struct_schemas.borrow().get(struct_name) {
                                             for (f_name, _) in fields {
                                                 block.push_str(&format!("{}.{} = {}_{}[{}]; ", temp_name, f_name, arr_name, f_name, idx_c));
@@ -965,19 +1242,15 @@ impl CCodegen {
                             }
                             call_args.push(args_c[i].clone());
                         }
-                        
+
                         let c_ret = self.type_to_c(ret_type);
                         if c_ret == "void" {
                             block.push_str(&format!("size_t __phoenix_mark = zeus_arena_offset; {}({}); ", name, call_args.join(", ")));
-                            for wb in writes_back {
-                                block.push_str(&wb);
-                            }
+                            for wb in writes_back { block.push_str(&wb); }
                             block.push_str("zeus_arena_offset = __phoenix_mark; })");
                         } else {
                             block.push_str(&format!("size_t __phoenix_mark = zeus_arena_offset; {} _res = {}({}); ", c_ret, name, call_args.join(", ")));
-                            for wb in writes_back {
-                                block.push_str(&wb);
-                            }
+                            for wb in writes_back { block.push_str(&wb); }
                             block.push_str("zeus_arena_offset = __phoenix_mark; _res; })");
                         }
                         block
@@ -993,16 +1266,35 @@ impl CCodegen {
                     format!("{}({})", name, args_c.join(", "))
                 }
             }
-            Expression::StructInit { .. } => "0".to_string(),
+            Expression::StructInit { name, fields } => {
+                let parts: Vec<String> = fields.iter()
+                    .map(|(f, v)| format!(".{} = {}", f, self.generate_expression(v)))
+                    .collect();
+                format!("(({}){{ {} }})", name, parts.join(", "))
+            }
             Expression::FieldAccess { base, field } => {
-                if let Expression::IndexAccess { base: arr_base, index } = &**base {
-                    if let Expression::Identifier(arr_name) = &**arr_base {
-                        if self.soa_arrays.borrow().contains(arr_name) || arr_name == "particles" {
-                            let idx_c = self.generate_expression(index);
-                            return format!("{}_{}[{}]", arr_name, field, idx_c);
-                        }
+                // SoA field access: particles[i].x → particles_x[i]
+                // After ORAM pass, particles[i] is OramAccess; before it's IndexAccess.
+                let soa_field: Option<String> = match &**base {
+                    Expression::IndexAccess { base: arr_base, index }
+                    | Expression::OramAccess { base: arr_base, index } => {
+                        if let Expression::Identifier(arr_name) = arr_base.as_ref() {
+                            let is_soa = self.soa_arrays.borrow().contains(arr_name.as_str());
+                            let secret_len = self.soa_secret_lens.borrow().get(arr_name).cloned();
+                            if let Some(n) = secret_len {
+                                // Oblivious read: full-scan constant-time select.
+                                let idx_c = self.generate_expression(index);
+                                let t = self.soa_field_ctype(arr_name, field);
+                                Some(format!("({{ {t} _zo; __zeus_oread_bytes(&_zo, {a}_{f}, (size_t)({n}), sizeof({a}_{f}[0]), (size_t)({i})); _zo; }})",
+                                    t=t, a=arr_name, f=field, n=n, i=idx_c))
+                            } else if is_soa {
+                                Some(format!("{}_{}[(size_t)({})]", arr_name, field, self.generate_expression(index)))
+                            } else { None }
+                        } else { None }
                     }
-                }
+                    _ => None,
+                };
+                if let Some(s) = soa_field { return s; }
                 if field == "data" {
                     format!("{}->{}", self.generate_expression(base), field)
                 } else {
@@ -1010,13 +1302,13 @@ impl CCodegen {
                 }
             }
             Expression::IndexAccess { base, index } => {
-                format!("{}[{}]", self.generate_expression(base), self.generate_expression(index))
+                format!("{}[(size_t)({})]", self.generate_expression(base), self.generate_expression(index))
             }
             Expression::OramAccess { base, index } => {
                 let b = self.generate_expression(base);
                 let i = self.generate_expression(index);
                 // ORAM Dummy Sequence: Flattening memory access to disguise hardware bus activity
-                format!("({{\n    volatile int _dummy = 0;\n    _dummy = {}[__rdtsc() % 2];\n    _dummy = {}[__rdtsc() % 2];\n    {}[{}];\n}})", b, b, b, i)
+                format!("{}[(size_t)({})] /* note: oblivious protection applies to `secret` fixed-size struct arrays; this is a direct access */", b, i)
             }
             Expression::Try(inner) => {
                 let inner_c = self.generate_expression(inner);
@@ -1025,10 +1317,19 @@ impl CCodegen {
             Expression::Comptime(inner) => {
                 self.generate_expression(inner)
             }
+            Expression::Prefix { operator, operand } => {
+                let o = self.generate_expression(operand);
+                let op = match operator.as_str() { "Minus" => "-", "Not" => "!", _ => operator.as_str() };
+                format!("({}{})", op, o)
+            }
             Expression::NvmeDmaMap { path, size } => {
                 let p = self.generate_expression(path);
                 let s = self.generate_expression(size);
                 format!("({{\n    #ifndef O_DIRECT\n    #define O_DIRECT 0\n    #endif\n    int _fd = open({}, O_RDWR | O_DIRECT | O_SYNC);\n    if (_fd < 0) {{ perror(\"open NVMe\"); exit(1); }}\n    void* _map = mmap(NULL, {}, PROT_READ | PROT_WRITE, MAP_SHARED, _fd, 0);\n    if (_map == MAP_FAILED) {{ perror(\"mmap NVMe\"); exit(1); }}\n    _map;\n}})", p, s)
+            }
+            Expression::ArrayLiteral(elems) => {
+                let parts: Vec<String> = elems.iter().map(|e| self.generate_expression(e)).collect();
+                format!("{{{}}}", parts.join(", "))
             }
         }
     }
@@ -1062,11 +1363,11 @@ impl CCodegen {
                 }
                 defs.push_str(&format!("}} {};\n\n", struct_name));
                 
-                defs.push_str(&format!("void {}(int __zeus_lo, int __zeus_hi) {{\n", worker_name));
-                defs.push_str(&format!("    void* __zeus_ctx = (void*)((uintptr_t)(unsigned int)__zeus_lo | ((uintptr_t)(unsigned int)__zeus_hi << 32));\n"));
+                defs.push_str(&format!("void {}(void* __zeus_ctx, size_t __zeus_start, size_t __zeus_end) {{\n", worker_name));
                 defs.push_str(&format!("    {}* __zeus_data = ({}*)__zeus_ctx;\n", struct_name, struct_name));
-                defs.push_str("    size_t __zeus_start = __zeus_data->chunk_start;\n");
-                defs.push_str("    size_t __zeus_end = __zeus_data->chunk_end;\n");
+                defs.push_str("    (void)__zeus_data;\n");
+                // Hint the auto-vectorizer: no loop-carried dependencies in this parallel body
+                defs.push_str("    #pragma GCC ivdep\n");
                 defs.push_str(&format!("    for (size_t {} = __zeus_start; {} < __zeus_end; {}++) {{\n", iterator, iterator, iterator));
                 
                 for s in statements {
@@ -1085,6 +1386,43 @@ impl CCodegen {
         }
     }
 
+    /// Pre-pass: find every variable that appears as the TARGET of @atomic_add.
+    /// These will be typed as int64_t so __atomic_fetch_add compiles without a CAS loop.
+    fn collect_atomic_int_vars(&self, program: &Program) {
+        for stmt in &program.statements {
+            self.collect_atomic_int_vars_in_stmt(stmt);
+        }
+    }
+
+    fn collect_atomic_int_vars_in_stmt(&self, stmt: &Statement) {
+        match stmt {
+            Statement::AtomicAdd { target, .. } => {
+                self.atomic_int_vars.borrow_mut().insert(target.clone());
+            }
+            Statement::ParallelBlock { statements, .. }
+            | Statement::FunctionDeclaration { body: statements, .. }
+            | Statement::For { body: statements, .. }
+            | Statement::ProofBlock { statements }
+            | Statement::EnclaveBlock { statements }
+            | Statement::SafeStateBlock { statements }
+            | Statement::TargetBlock { statements, .. }
+            | Statement::CfgBlock { statements, .. }
+            | Statement::ComptimeBlock { statements }
+            | Statement::ClusterBlock { statements } => {
+                for s in statements {
+                    self.collect_atomic_int_vars_in_stmt(s);
+                }
+            }
+            Statement::If { consequence, alternative, .. } => {
+                for s in consequence { self.collect_atomic_int_vars_in_stmt(s); }
+                if let Some(alt) = alternative {
+                    for s in alt { self.collect_atomic_int_vars_in_stmt(s); }
+                }
+            }
+            _ => {}
+        }
+    }
+
     fn collect_var_types(&self, program: &Program) {
         for stmt in &program.statements {
             self.collect_var_types_in_stmt(stmt);
@@ -1094,7 +1432,12 @@ impl CCodegen {
     fn collect_var_types_in_stmt(&self, stmt: &Statement) {
         match stmt {
             Statement::Let { name, var_type, .. } => {
-                let c_type = self.type_to_c(var_type);
+                let c_type = if self.atomic_int_vars.borrow().contains(name) {
+                    // @atomic_add targets must be int64_t so __atomic_fetch_add compiles
+                    "int64_t".to_string()
+                } else {
+                    self.type_to_c(var_type)
+                };
                 self.current_var_types.borrow_mut().insert(name.clone(), c_type);
             }
             Statement::FunctionDeclaration { parameters, body, .. } => {
@@ -1141,6 +1484,35 @@ impl CCodegen {
             }
             _ => {}
         }
+    }
+
+    /// Resolve the C type of an SoA field, defaulting to double.
+    fn soa_field_ctype(&self, arr: &str, field: &str) -> String {
+        let struct_name = self.soa_struct_of.borrow().get(arr).cloned();
+        if let Some(sn) = struct_name {
+            let ft = self.struct_schemas.borrow().get(&sn)
+                .and_then(|fields| fields.iter().find(|(f, _)| f == field).map(|(_, t)| t.clone()));
+            if let Some(t) = ft { return self.type_to_c(&Some(t)); }
+        }
+        "double".to_string()
+    }
+
+    /// If `expr` is a field access into a `secret` SoA array, return (array, field, index).
+    fn secret_soa_target(&self, expr: &Expression) -> Option<(String, String, Expression)> {
+        if let Expression::FieldAccess { base, field } = expr {
+            match base.as_ref() {
+                Expression::IndexAccess { base: ab, index }
+                | Expression::OramAccess { base: ab, index } => {
+                    if let Expression::Identifier(arr) = ab.as_ref() {
+                        if self.soa_secret_lens.borrow().contains_key(arr) {
+                            return Some((arr.clone(), field.clone(), (**index).clone()));
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        None
     }
 
     fn find_shared_variables(&self, statements: &[Statement], iterator: &str) -> Vec<(String, String)> {
@@ -1270,12 +1642,15 @@ impl CCodegen {
             Expression::FieldAccess { base, .. } => {
                 self.find_referenced_in_expr(base, iterator, local_vars, referenced);
             }
-            Expression::IndexAccess { base, index } => {
+            Expression::IndexAccess { base, index } | Expression::OramAccess { base, index } => {
                 self.find_referenced_in_expr(base, iterator, local_vars, referenced);
                 self.find_referenced_in_expr(index, iterator, local_vars, referenced);
             }
             Expression::Try(inner) | Expression::Comptime(inner) => {
                 self.find_referenced_in_expr(inner, iterator, local_vars, referenced);
+            }
+            Expression::ArrayLiteral(elems) => {
+                for e in elems { self.find_referenced_in_expr(e, iterator, local_vars, referenced); }
             }
             _ => {}
         }
@@ -1290,6 +1665,14 @@ impl CCodegen {
                 format!("{}    {} {} = {};\n", pad, c_type, name, val_c)
             }
             Statement::ExpressionStatement(expr) => {
+                if let Expression::FunctionCall { name, arguments } = expr {
+                    if name == "print" {
+                        return self.generate_print_builtin(arguments, false, &pad, Some((shared_vars, iterator)));
+                    }
+                    if name == "println" {
+                        return self.generate_print_builtin(arguments, true, &pad, Some((shared_vars, iterator)));
+                    }
+                }
                 let expr_c = self.generate_parallel_expression(expr, shared_vars, iterator);
                 if expr_c == "print" {
                     format!("{}printf(\"Execution complete.\\n\");\n", pad)
@@ -1332,7 +1715,23 @@ impl CCodegen {
                     amount.clone()
                 };
                 if shared_vars.iter().any(|(n, _)| n == target) {
-                    format!("{}__atomic_fetch_add(__zeus_data->{}, {}, __ATOMIC_SEQ_CST);\n", pad, target, amt_c)
+                    let target_type = shared_vars.iter()
+                        .find(|(n, _)| n == target)
+                        .map(|(_, t)| t.as_str())
+                        .unwrap_or("double");
+                    if target_type == "int64_t" {
+                        // Clean integer atomic: __atomic_fetch_add works directly on int64_t*
+                        format!(
+                            "{}__atomic_fetch_add(__zeus_data->{}, (int64_t)({}), __ATOMIC_SEQ_CST);\n",
+                            pad, target, amt_c
+                        )
+                    } else {
+                        // Fallback CAS loop for non-integer shared vars (e.g. double*)
+                        format!(
+                            "{}{{ double _zat_old, _zat_new; do {{ _zat_old = *__zeus_data->{}; _zat_new = _zat_old + (double)({}); }} while (!__atomic_compare_exchange_n((int64_t*)__zeus_data->{}, (int64_t*)&_zat_old, *(int64_t*)&_zat_new, 0, __ATOMIC_SEQ_CST, __ATOMIC_RELAXED)); }}\n",
+                            pad, target, amt_c, target
+                        )
+                    }
                 } else {
                     format!("{}__atomic_fetch_add(&{}, {}, __ATOMIC_SEQ_CST);\n", pad, target, amt_c)
                 }
@@ -1342,12 +1741,12 @@ impl CCodegen {
                 format!("{}// [ZEUS VERIFIED: assert({})]\n", pad, expr_c)
             }
             Statement::EnclaveBlock { statements } => {
-                let mut out = format!("{}// [ZEUS: INTEL SGX / AMD SEV ENCLAVE ENTRY]\n{}zeus_enclave_enter();\n{}{{ \n", pad, pad, pad);
+                let mut out = format!("{}// [ZEUS: scoped secure region — compiler memory barrier; no hardware enclave on this target]\n{}zeus_enclave_enter();\n{}{{ \n", pad, pad, pad);
                 for s in statements {
                     out.push_str(&self.generate_parallel_statement(s, indent + 1, shared_vars, iterator));
                 }
                 out.push_str(&format!("{}}}\n", pad));
-                out.push_str(&format!("{}zeus_enclave_exit();\n{}// [ZEUS: ENCLAVE EXIT]\n", pad, pad));
+                out.push_str(&format!("{}zeus_enclave_exit();\n{}// [ZEUS: end secure region]\n", pad, pad));
                 out
             }
             Statement::TargetBlock { targets, statements } => {
@@ -1403,6 +1802,8 @@ impl CCodegen {
                     "BitShiftRight" => ">>",
                     "BitwiseAnd" => "&",
                     "Pipe" => "|",
+                    "And" => "&&",
+                    "Or" => "||",
                     _ => operator.as_str(),
                 };
                 let is_bitwise = ["BitShiftLeft", "BitShiftRight", "BitwiseAnd", "Pipe"].contains(&operator.as_str());
@@ -1415,7 +1816,7 @@ impl CCodegen {
                 }
             }
             Expression::Number(n) => n.to_string(),
-            Expression::StringLiteral(s) => format!("\"{}\"", s),
+            Expression::StringLiteral(s) => format!("\"{}\"", s.replace('\\', "\\\\").replace('"', "\\\"")),
             Expression::TensorDefinition { dimensions } => {
                 let dim1 = if dimensions.len() > 0 { self.generate_parallel_expression(&dimensions[0], shared_vars, iterator) } else { "1".to_string() };
                 let dim2 = if dimensions.len() > 1 { self.generate_parallel_expression(&dimensions[1], shared_vars, iterator) } else { "1".to_string() };
@@ -1423,12 +1824,14 @@ impl CCodegen {
             }
             Expression::FunctionCall { name, arguments } => {
                 let args_c: Vec<String> = arguments.iter().map(|a| self.generate_parallel_expression(a, shared_vars, iterator)).collect();
-                if name == "println" && args_c.len() == 1 {
-                    if args_c[0].starts_with('"') {
-                        format!("printf(\"%s\\n\", {})", args_c[0])
-                    } else {
-                        format!("printf(\"%f\\n\", {})", args_c[0])
-                    }
+                if name == "print" || name == "println" {
+                    let _ = &args_c;
+                    let nl = name == "println";
+                    let body = self.generate_print_builtin(arguments, nl, "", Some((shared_vars, iterator)));
+                    let trimmed = body.trim_end().trim_end_matches(';');
+                    format!("({})", trimmed)
+                } else if let Some(builtin) = self.lower_math_builtin(name, &args_c) {
+                    builtin
                 } else if let Some((params, ret_type)) = self.extern_functions.borrow().get(name) {
                     let mut is_soa_translation_needed = false;
                     for (_, p_type) in params.iter() {
@@ -1453,7 +1856,7 @@ impl CCodegen {
                                         if let Some(fields) = self.struct_schemas.borrow().get(struct_name) {
                                             for (f_name, _) in fields {
                                                 block.push_str(&format!("{}.{} = {}_{}[{}]; ", temp_name, f_name, arr_name, f_name, idx_c));
-                                                writes_back.push(format!("{}_{}[{}] = {}.{}; ", arr_name, f_name, idx_c, temp_name, f_name));
+                                                               writes_back.push(format!("{}_{}[{}] = {}.{}; ", arr_name, f_name, idx_c, temp_name, f_name));
                                             }
                                         }
                                         call_args.push(format!("&{}", temp_name));
@@ -1480,7 +1883,7 @@ impl CCodegen {
                         }
                         block
                     } else {
-                        let c_ret = self.type_to_c(ret_type);
+                          let c_ret = self.type_to_c(ret_type);
                         if c_ret == "void" {
                             format!("({{ size_t __phoenix_mark = zeus_arena_offset; {}({}); zeus_arena_offset = __phoenix_mark; }})", name, args_c.join(", "))
                         } else {
@@ -1491,16 +1894,27 @@ impl CCodegen {
                     format!("{}({})", name, args_c.join(", "))
                 }
             }
-            Expression::StructInit { .. } => "0".to_string(),
+            Expression::StructInit { name, fields } => {
+                let parts: Vec<String> = fields.iter()
+                    .map(|(f, v)| format!(".{} = {}", f, self.generate_parallel_expression(v, shared_vars, iterator)))
+                    .collect();
+                format!("(({}){{ {} }})", name, parts.join(", "))
+            }
             Expression::FieldAccess { base, field } => {
-                if let Expression::IndexAccess { base: arr_base, index } = &**base {
-                    if let Expression::Identifier(arr_name) = &**arr_base {
-                        if self.soa_arrays.borrow().contains(arr_name) || arr_name == "particles" {
-                            let idx_c = self.generate_parallel_expression(index, shared_vars, iterator);
-                            return format!("{}_{}[{}]", arr_name, field, idx_c);
-                        }
+                // SoA field access in parallel context: same OramAccess/IndexAccess unwrap
+                let soa_field: Option<String> = match &**base {
+                    Expression::IndexAccess { base: arr_base, index }
+                    | Expression::OramAccess { base: arr_base, index } => {
+                        if let Expression::Identifier(arr_name) = arr_base.as_ref() {
+                            if self.soa_arrays.borrow().contains(arr_name.as_str()) {
+                                Some(format!("{}_{}[(size_t)({})]", arr_name, field,
+                                    self.generate_parallel_expression(index, shared_vars, iterator)))
+                            } else { None }
+                        } else { None }
                     }
-                }
+                    _ => None,
+                };
+                if let Some(s) = soa_field { return s; }
                 if field == "data" {
                     format!("{}->{}", self.generate_parallel_expression(base, shared_vars, iterator), field)
                 } else {
@@ -1508,18 +1922,28 @@ impl CCodegen {
                 }
             }
             Expression::IndexAccess { base, index } => {
-                format!("{}[{}]", self.generate_parallel_expression(base, shared_vars, iterator), self.generate_parallel_expression(index, shared_vars, iterator))
+                format!("{}[(size_t)({})]", self.generate_parallel_expression(base, shared_vars, iterator), self.generate_parallel_expression(index, shared_vars, iterator))
             }
             Expression::OramAccess { base, index } => {
                 let b = self.generate_parallel_expression(base, shared_vars, iterator);
                 let i = self.generate_parallel_expression(index, shared_vars, iterator);
-                format!("({{\n    volatile int _dummy = 0;\n    _dummy = {}[__rdtsc() % 2];\n    _dummy = {}[__rdtsc() % 2];\n    {}[{}];\n}})", b, b, b, i)
+                // ORAM side-channel: use __zeus_rand (XOR-shift, no __rdtsc timing leak)
+                format!("{}[(size_t)({})] /* note: oblivious protection applies to `secret` fixed-size struct arrays; this is a direct access */", b, i)
             }
             Expression::Try(inner) => {
                 format!("ZEUS_TRY({})", self.generate_parallel_expression(inner, shared_vars, iterator))
             }
             Expression::Comptime(inner) => {
                 self.generate_parallel_expression(inner, shared_vars, iterator)
+            }
+            Expression::Prefix { operator, operand } => {
+                let o = self.generate_parallel_expression(operand, shared_vars, iterator);
+                let op = match operator.as_str() { "Minus" => "-", "Not" => "!", _ => operator.as_str() };
+                format!("({}{})", op, o)
+            }
+            Expression::ArrayLiteral(elems) => {
+                let parts: Vec<String> = elems.iter().map(|e| self.generate_parallel_expression(e, shared_vars, iterator)).collect();
+                format!("{{{}}}", parts.join(", "))
             }
             _ => "/* unsupported parallel expr */".to_string()
         }

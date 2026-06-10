@@ -1,0 +1,11 @@
+{
+  "zeus_certificate":"v1",
+  "source":"test_bounds_wcet.zs",
+  "source_sha256":"f9bd3d41b858761680126b896c5d78c2ed2847f75fb186b507e913e617819681",
+  "zero_heap":true,
+  "functions":[
+    {"name":"sum_to","reproducible":true,"constant_time":true,"wcet_steps":605,"stack_bytes":80},
+    {"name":"fac","reproducible":true,"constant_time":true,"wcet_steps":null,"stack_bytes":72},
+    {"name":"main","reproducible":true,"constant_time":true,"wcet_steps":612,"stack_bytes":64}
+  ]
+}

@@ -1,0 +1,10 @@
+{
+  "zeus_certificate":"v1",
+  "source":"./zeus_compiler/test_fibers.zs",
+  "source_sha256":"96f058ca8730cfccc2cf9c8981db98b0513ff6eebf340bb142ba69b2a5859d1d",
+  "zero_heap":true,
+  "functions":[
+    {"name":"process","reproducible":true,"constant_time":true,"wcet_steps":4,"stack_bytes":80},
+    {"name":"main","reproducible":true,"constant_time":true,"wcet_steps":6,"stack_bytes":64}
+  ]
+}

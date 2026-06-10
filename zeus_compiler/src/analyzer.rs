@@ -3,38 +3,101 @@ use std::collections::HashMap;
 use crate::comptime::compiler::BytecodeCompiler;
 use crate::vm::machine::Machine;
 
+#[derive(PartialEq)]
+enum TyKind { Num, StrK, StructK(String), ArrK, TenK, Wild }
+
+fn ty_kind(t: &Type) -> TyKind {
+    match t {
+        Type::I8 | Type::I32 | Type::U64 | Type::F32 | Type::F64 | Type::Bool => TyKind::Num,
+        Type::Struct(n) if n == "str" => TyKind::StrK,
+        Type::Struct(n) => TyKind::StructK(n.clone()),
+        Type::Array(..) => TyKind::ArrK,
+        Type::Tensor { .. } => TyKind::TenK,
+        _ => TyKind::Wild, // Unknown / Pointer / Result -> wildcard, never flagged
+    }
+}
+
+/// Conservative type compatibility: only INCOMPATIBLE when both sides are known,
+/// concrete, DIFFERENT kinds (e.g. str vs numeric, struct A vs struct B). All
+/// numerics are mutually compatible (number literals are f64 until annotated), and
+/// any Unknown/Pointer/Result is a wildcard, so loose programs are never falsely
+/// rejected -- the checker never produces a false positive.
+fn types_compatible(a: &Type, b: &Type) -> bool {
+    use TyKind::*;
+    match (ty_kind(a), ty_kind(b)) {
+        (Wild, _) | (_, Wild) => true,
+        (Num, Num) => true,
+        (StrK, StrK) => true,
+        (ArrK, ArrK) | (TenK, TenK) | (ArrK, TenK) | (TenK, ArrK) => true,
+        (StructK(x), StructK(y)) => x == y,
+        _ => false,
+    }
+}
+
+fn ty_name(t: &Type) -> String {
+    match t {
+        Type::I8 => "i8".into(), Type::I32 => "i32".into(), Type::U64 => "u64".into(),
+        Type::F32 => "f32".into(), Type::F64 => "f64".into(), Type::Bool => "bool".into(),
+        Type::Struct(n) if n == "str" => "str".into(),
+        Type::Struct(n) => format!("struct {}", n),
+        Type::Array(..) => "array".into(),
+        Type::Tensor { .. } => "tensor".into(),
+        Type::Unknown(_) => "<unknown>".into(),
+        Type::Pointer(_) => "pointer".into(),
+        Type::Result(..) => "Result".into(),
+    }
+}
+
 pub struct SemanticAnalyzer {
-    symbol_table: HashMap<String, (bool, Type)>, // (is_mut, type)
+    scopes: Vec<HashMap<String, (bool, Type)>>, // lexical scope stack of (is_mut, type)
     struct_schemas: HashMap<String, Vec<(String, crate::ast::Type)>>,
     function_types: HashMap<String, Type>,
+    function_arity: HashMap<String, usize>,
+    current_return: Vec<Option<Type>>,
 }
 
 impl SemanticAnalyzer {
     pub fn new() -> Self {
         Self {
-            symbol_table: HashMap::new(),
+            scopes: vec![HashMap::new()],
             struct_schemas: HashMap::new(),
             function_types: HashMap::new(),
+            function_arity: HashMap::new(),
+            current_return: Vec::new(),
         }
+    }
+
+    fn push_scope(&mut self) { self.scopes.push(HashMap::new()); }
+    fn pop_scope(&mut self) { self.scopes.pop(); }
+    fn declare(&mut self, name: &str, info: (bool, Type)) {
+        self.scopes.last_mut().expect("scope stack underflow").insert(name.to_string(), info);
+    }
+    fn lookup(&self, name: &str) -> Option<&(bool, Type)> {
+        for scope in self.scopes.iter().rev() {
+            if let Some(v) = scope.get(name) { return Some(v); }
+        }
+        None
     }
 
     pub fn analyze(&mut self, program: &mut Program) -> Result<(), String> {
         // Pre-pass: Register all function return types
         for stmt in &program.statements {
             match stmt {
-                Statement::FunctionDeclaration { name, return_type, .. } => {
+                Statement::FunctionDeclaration { name, return_type, parameters, .. } => {
                     let ret_ty = match return_type {
                         Some(ty) => ty.clone(),
                         None => Type::Unknown("void".to_string()),
                     };
                     self.function_types.insert(name.clone(), ret_ty);
+                    self.function_arity.insert(name.clone(), parameters.len());
                 }
-                Statement::ExternFunctionDeclaration { name, return_type, .. } => {
+                Statement::ExternFunctionDeclaration { name, return_type, parameters, .. } => {
                     let ret_ty = match return_type {
                         Some(ty) => ty.clone(),
                         None => Type::Unknown("void".to_string()),
                     };
                     self.function_types.insert(name.clone(), ret_ty);
+                    self.function_arity.insert(name.clone(), parameters.len());
                 }
                 _ => {}
             }
@@ -57,15 +120,25 @@ impl SemanticAnalyzer {
             Statement::Let { name, is_mut, is_secret: _, value, var_type } => {
                 self.analyze_expression(value)?;
                 let inferred = self.infer_type(value);
-                *var_type = Some(inferred.clone());
-                self.symbol_table.insert(name.clone(), (*is_mut, inferred));
+                // Type check: if there is an explicit annotation, the initializer must
+                // be compatible with it (conservative -- only clear mismatches flagged).
+                if let Some(ann) = var_type.clone() {
+                    if !types_compatible(&ann, &inferred) {
+                        return Err(format!("type mismatch: '{}' is declared {} but initialized with {}",
+                            name, ty_name(&ann), ty_name(&inferred)));
+                    }
+                } else {
+                    *var_type = Some(inferred.clone());
+                }
+                let declared = var_type.clone().unwrap_or(inferred);
+                self.declare(name, (*is_mut, declared));
             }
             Statement::ExpressionStatement(expr) => {
                 // Check if it's an assignment
                 if let Expression::Infix { left, operator, right: _ } = expr {
                     if operator == "Assign" {
                         if let Expression::Identifier(name) = &**left {
-                            if let Some(&(is_mut, _)) = self.symbol_table.get(name) {
+                            if let Some(&(is_mut, _)) = self.lookup(name) {
                                 if !is_mut {
                                     return Err(format!("Immutable variable '{}' cannot be reassigned. Use 'let mut'.", name));
                                 }
@@ -81,18 +154,22 @@ impl SemanticAnalyzer {
                 for attr in attributes.iter_mut() {
                     match attr {
                         crate::ast::FunctionAttribute::Verify(expr, has_timed_out) => {
-                            println!("\x1b[35m[ZEUS SMT-SOLVER]\x1b[0m Formally verifying mathematical constraint for fn {}(): {:?}", name, expr);
-                            // BUG FIX #3: SMT solver time budget increased from 1000ms to 2000ms per spec.
-                            let timeout_threshold = 2000;
-                            let simulated_duration = 2050; // purposely exceed timeout to show fallback
-                            if simulated_duration > timeout_threshold {
-                                println!("\x1b[33m[ZEUS WARNING]\x1b[0m Verification for {}() timed out (>{}ms). Falling back to explicit runtime check.", name, timeout_threshold);
-                                *has_timed_out = true;
-                            }
+                            // HONESTY: no static SMT proof is actually performed here (z3 is not
+                            // invoked from this path), so do not claim one. We always fall back to
+                            // an injected runtime check, which is the safe, sound behavior.
+                            println!("\x1b[35m[ZEUS @verify]\x1b[0m fn {}(): no static proof attempted; enforcing constraint with an injected runtime check: {:?}", name, expr);
+                            *has_timed_out = true;
+                        }
+                        crate::ast::FunctionAttribute::Requires(expr, _) => {
+                            println!("\x1b[35m[ZEUS CONTRACT]\x1b[0m fn {}() @requires {:?} (runtime-enforced)", name, expr);
+                        }
+                        crate::ast::FunctionAttribute::Ensures(expr, _) => {
+                            println!("\x1b[35m[ZEUS CONTRACT]\x1b[0m fn {}() @ensures {:?} (runtime-enforced)", name, expr);
                         }
                         crate::ast::FunctionAttribute::Adaptive(params) => {
-                            println!("\x1b[36m[ZEUS JIT-MUTATION]\x1b[0m Registered adaptive logic for fn {}(). Trigger thresholds: {}", name, params);
+                            eprintln!("\x1b[33m[ZEUS]\x1b[0m note: @adaptive on fn {}() recorded; runtime JIT mutation is a research stub (no-op). Params: {}", name, params);
                         }
+                        crate::ast::FunctionAttribute::Wcet(_) | crate::ast::FunctionAttribute::Stack(_) | crate::ast::FunctionAttribute::ConstantTime => {}
                         crate::ast::FunctionAttribute::FfiExport => {}
                     }
                 }
@@ -104,55 +181,78 @@ impl SemanticAnalyzer {
                 }
                 // In a real compiler, we would push a new scope block here.
                 // For this prototype, we'll register parameters as immutable in the global map
+                self.push_scope();
                 for (p_name, ty) in parameters.iter() {
-                    self.symbol_table.insert(p_name.clone(), (false, ty.clone()));
+                    self.declare(p_name, (false, ty.clone()));
                 }
+                self.current_return.push(return_type.clone());
                 for s in body {
                     self.analyze_statement(s)?;
                 }
+                self.current_return.pop();
+                self.pop_scope();
             }
             Statement::For { iterator, body, .. } => {
+                self.push_scope();
                 // The loop iterator is essentially a mutable local
-                self.symbol_table.insert(iterator.clone(), (true, Type::I32));
+                self.declare(iterator, (true, Type::I32));
                 for s in body {
                     self.analyze_statement(s)?;
                 }
+                self.pop_scope();
+            }
+            Statement::While { condition, body } => {
+                self.analyze_expression(condition)?;
+                self.push_scope();
+                for s in body {
+                    self.analyze_statement(s)?;
+                }
+                self.pop_scope();
             }
             Statement::ParallelBlock { iterator, start, end, statements } => {
-                self.symbol_table.insert(iterator.clone(), (false, Type::U64));
                 self.analyze_expression(start)?;
                 self.analyze_expression(end)?;
+                self.push_scope();
+                self.declare(iterator, (false, Type::U64));
                 for s in statements {
                     self.analyze_statement(s)?;
                 }
+                self.pop_scope();
             }
             Statement::TargetBlock { statements, .. } 
             | Statement::EnclaveBlock { statements }
             | Statement::ProofBlock { statements } => {
+                self.push_scope();
                 for s in statements {
                     self.analyze_statement(s)?;
                 }
+                self.pop_scope();
             }
             Statement::ClusterBlock { statements } => {
-                println!("\x1b[34m[ZEUS CLUSTER]\x1b[0m Mapping block to RDMA distributed fabric...");
-                println!("\x1b[34m[ZEUS ENCLAVE]\x1b[0m Enforcing TLS cryptographic enclave for RDMA memory segment.");
+                eprintln!("\x1b[33m[ZEUS]\x1b[0m note: `cluster {{}}` is not implemented (no-op; the block runs locally).");
+                self.push_scope();
                 for s in statements {
                     self.analyze_statement(s)?;
                 }
+                self.pop_scope();
             }
             Statement::ComptimeBlock { statements } => {
                 // Run the Bytecode Compiler to flatten the AST
                 let mut compiler = BytecodeCompiler::new();
-                compiler.compile_block(statements);
-
-                // Check for Purity Boundary: If the compiler failed or encountered unsupported runtime logic, it would panic (or return Err in a real compiler).
-                // Assuming it succeeded, we run the VM.
-                let mut vm = Machine::new();
-                vm.run(&compiler.bytecode, &compiler.constants);
-
-                // The block is executed at build time. We could optionally strip it from the AST by turning it into a NoOp.
-                // For now, we just verify it runs.
-                println!("Comptime block executed successfully with VM. Stack: {:?}", vm.stack);
+                // A comptime block that contains constructs the VM can't evaluate is
+                // NOT a hard error: we leave it as ordinary runtime code rather than
+                // crashing the compiler.
+                match compiler.compile_block(statements) {
+                    Ok(()) => {
+                        let mut vm = Machine::new();
+                        if let Err(e) = vm.run(&compiler.bytecode, &compiler.constants) {
+                            return Err(format!("Comptime VM Error: {}", e));
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("[ZEUS] comptime block not statically evaluable ({}); left as runtime code.", e);
+                    }
+                }
             }
             Statement::ExternFunctionDeclaration { parameters, return_type, .. } => {
                 for (_, ty) in parameters.iter_mut() {
@@ -162,21 +262,34 @@ impl SemanticAnalyzer {
                     self.analyze_type(rt)?;
                 }
             }
+            Statement::Return(expr) => {
+                if let Some(Some(rt)) = self.current_return.last().cloned() {
+                    let got = self.infer_type(expr);
+                    if !types_compatible(&rt, &got) {
+                        return Err(format!("return type mismatch: function returns {} but a `return` yields {}",
+                            ty_name(&rt), ty_name(&got)));
+                    }
+                }
+            }
             Statement::LineDirective(_) => {}
             Statement::AtomicAdd { target, amount: _ } => {
                 // Must be a mutable variable or pointer in a real compiler
-                if !self.symbol_table.contains_key(target) {
+                if self.lookup(target).is_none() {
                     return Err(format!("Atomic add to undeclared variable '{}'", target));
                 }
             }
             Statement::If { consequence, alternative, .. } => {
+                self.push_scope();
                 for s in consequence {
                     self.analyze_statement(s)?;
                 }
+                self.pop_scope();
                 if let Some(alt) = alternative {
+                    self.push_scope();
                     for s in alt {
                         self.analyze_statement(s)?;
                     }
+                    self.pop_scope();
                 }
             }
             _ => {}
@@ -185,7 +298,6 @@ impl SemanticAnalyzer {
     }
 
     fn analyze_type(&mut self, ty: &mut Type) -> Result<(), String> {
-        println!("analyze_type: {:?}", ty);
         match ty {
             Type::Tensor { dimensions, .. } => {
                 for dim in dimensions {
@@ -233,9 +345,21 @@ impl SemanticAnalyzer {
                 self.analyze_expression(left)?;
                 self.analyze_expression(right)?;
             }
-            Expression::FunctionCall { arguments, .. } => {
-                for arg in arguments {
+            Expression::Prefix { operand, .. } => {
+                self.analyze_expression(operand)?;
+            }
+            Expression::FunctionCall { name, arguments } => {
+                for arg in arguments.iter_mut() {
                     self.analyze_expression(arg)?;
+                }
+                // Conservative type check: arity for USER-DEFINED functions only.
+                // Builtins (println, sqrt, ...) are not in the table, so never flagged.
+                if let Some(&arity) = self.function_arity.get(name.as_str()) {
+                    if arguments.len() != arity {
+                        return Err(format!(
+                            "call to '{}' has {} argument(s) but it is defined with {}",
+                            name, arguments.len(), arity));
+                    }
                 }
             }
             Expression::FieldAccess { base, .. } => {
@@ -249,21 +373,23 @@ impl SemanticAnalyzer {
                 self.analyze_expression(base)?;
                 self.analyze_expression(index)?;
             }
+            Expression::ArrayLiteral(elements) => {
+                for el in elements { self.analyze_expression(el)?; }
+            }
             Expression::Comptime(inner) => {
-                // Compile the inner expression
+                // Best-effort constant folding. If the expression isn't foldable
+                // by the comptime VM, leave it for runtime evaluation rather than
+                // failing the build.
                 let mut compiler = BytecodeCompiler::new();
-                compiler.compile_expression(inner);
-
-                // Run the Bytecode VM
-                let mut vm = Machine::new();
-                vm.run(&compiler.bytecode, &compiler.constants);
-
-                // Fetch the result
-                if let Some(result) = vm.stack.pop() {
-                    // Mutate the AST: Replace `comptime(expr)` with the hardcoded result
-                    *expr = Expression::Number(result);
+                if compiler.compile_expression(inner).is_ok() {
+                    let mut vm = Machine::new();
+                    if vm.run(&compiler.bytecode, &compiler.constants).is_ok() {
+                        if let Some(result) = vm.stack.pop() {
+                            *expr = Expression::Number(result);
+                        }
+                    }
                 } else {
-                    return Err("Comptime expression did not return a value on the VM stack.".to_string());
+                    eprintln!("[ZEUS] comptime() expression not foldable; evaluated at runtime.");
                 }
             }
             _ => {}
@@ -274,9 +400,9 @@ impl SemanticAnalyzer {
     pub fn infer_type(&self, expr: &Expression) -> Type {
         match expr {
             Expression::Number(_) => Type::F64,
-            Expression::StringLiteral(_) => Type::Unknown("String".to_string()),
+            Expression::StringLiteral(_) => Type::Struct("str".to_string()),
             Expression::Identifier(name) => {
-                if let Some((_, ty)) = self.symbol_table.get(name) {
+                if let Some((_, ty)) = self.lookup(name) {
                     ty.clone()
                 } else {
                     Type::Unknown(name.clone())
@@ -289,7 +415,18 @@ impl SemanticAnalyzer {
                 }
                 self.infer_type(left)
             }
-            Expression::FunctionCall { name, .. } => {
+            Expression::Prefix { operator, operand } => {
+                if operator == "Not" { return Type::Bool; }
+                self.infer_type(operand)
+            }
+            Expression::FunctionCall { name, arguments } => {
+                match name.as_str() {
+                    "sqrt" | "pow" | "floor" | "ceil" => return Type::F64,
+                    "abs" | "min" | "max" | "clamp" => {
+                        return arguments.first().map(|a| self.infer_type(a)).unwrap_or(Type::F64);
+                    }
+                    _ => {}
+                }
                 if let Some(ty) = self.function_types.get(name) {
                     ty.clone()
                 } else {
@@ -337,6 +474,10 @@ impl SemanticAnalyzer {
             }
             Expression::Try(inner) => self.infer_type(inner),
             Expression::Comptime(inner) => self.infer_type(inner),
+            Expression::ArrayLiteral(elements) => {
+                let elem_ty = elements.first().map(|e| self.infer_type(e)).unwrap_or(Type::Unknown("ArrayElem".to_string()));
+                Type::Array(Box::new(elem_ty), Box::new(crate::ast::Expression::Number(elements.len() as f64)))
+            }
             _ => Type::Unknown("UnknownExpr".to_string())
         }
     }

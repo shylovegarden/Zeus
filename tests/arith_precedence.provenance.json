@@ -1,0 +1,8 @@
+{
+  "_type":"https://in-toto.io/Statement/v1",
+  "subject":[{"name":"arith_precedence","digest":{"sha256":"90516e5aba4ae16037cc0e739ab43537e92ec20a09957044d1601ff2591cf6f9"}}],
+  "predicateType":"https://slsa.dev/provenance/v1",
+  "predicate":{"buildDefinition":{"buildType":"https://zeus-lang.dev/buildtypes/compile/v1","externalParameters":{"source":"cases/arith_precedence.zs","sourceSha256":"87f8d424d6bba1a503aec6d93fa57dbb58cbb26968541f02ef8b2f95b7d835b3"},"internalParameters":{"compilerFlags":"-O2 -march=native","builderPlatform":"linux/x86_64"},"resolvedDependencies":[{"name":"cases/arith_precedence.zs","digest":{"sha256":"87f8d424d6bba1a503aec6d93fa57dbb58cbb26968541f02ef8b2f95b7d835b3"}}]},"runDetails":{"builder":{"id":"https://zeus-lang.dev/zeus_compiler@v0.1.0"},"metadata":{"invocationId":"6a288c89-12","startedOn":"2026-06-09T21:58:33Z","finishedOn":"2026-06-09T21:58:33Z"}}},
+  "signature":"59729d59c5f9dea1c1bf4ec717491e49dafefa824df89cdad9063342ddcb0180251be839606989d59f418c4baa8a4c91ce6085e4f073194bc87a6e4902275305",
+  "pubkey":"892dd1af9bed09dddfbff4df217d6875b71e96419d6151dc8e71407104c5cb8f"
+}

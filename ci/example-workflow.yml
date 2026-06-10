@@ -1,0 +1,101 @@
+# Example GitHub Actions workflow: Zeus trust gate for AI-generated code.
+#
+# Flow: an agent (or a human) commits C source -> clang lowers it to LLVM-IR
+# -> the Zeus Audit Gate proves each function safe (or fails the build) ->
+# SARIF is uploaded so findings show up in the repo's Security tab.
+#
+# Copy this into .github/workflows/zeus-audit.yml and adjust `path:` to point
+# at your generated .ll files (or the C sources you compile below).
+#
+# This is an EXAMPLE. It assumes the zeus binary is installable in CI; see
+# ci/README.md for how to provide it (release artifact, container image, or a
+# build step). The Zeus Audit Gate action itself only requires zeus on PATH.
+
+name: Zeus Audit Gate
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Allow code-scanning upload to write SARIF results.
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  zeus-audit:
+    name: Prove AI-generated code safe
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install clang/LLVM
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang llvm
+
+      # --- Provide the zeus binary on PATH -------------------------------
+      # Replace this with however you ship zeus. Two common options:
+      #   (a) download a prebuilt release artifact, or
+      #   (b) build from source with cargo.
+      # The gate only needs `zeus` (or `zeus_compiler`) discoverable on PATH.
+      - name: Install zeus
+        run: |
+          # Example (a): download a pinned release artifact.
+          #   curl -sSL -o /usr/local/bin/zeus \
+          #     https://example.com/zeus/releases/v0.1.0/zeus-linux-x86_64
+          #   chmod +x /usr/local/bin/zeus
+          #
+          # Example (b): build from source (slower).
+          #   cargo build --release --manifest-path zeus_compiler/Cargo.toml
+          #   sudo install -m 0755 target/release/zeus_compiler /usr/local/bin/zeus
+          #
+          # For this example we assume one of the above placed `zeus` on PATH.
+          zeus --version || echo "Replace this step with a real zeus install."
+
+      # --- Lower AI-generated C to LLVM-IR -------------------------------
+      # `clang -emit-llvm -S` produces the textual .ll that Zeus audits.
+      # Use -O1 so the IR matches the shape Zeus's Lens models for real C.
+      - name: Compile AI-generated C to LLVM-IR
+        run: |
+          mkdir -p build/ir
+          shopt -s nullglob
+          for src in src/ai-generated/*.c; do
+            base="$(basename "${src%.c}")"
+            clang -O1 -S -emit-llvm "$src" -o "build/ir/${base}.ll"
+            echo "lowered $src -> build/ir/${base}.ll"
+          done
+          ls -l build/ir
+
+      # --- Run the Zeus Audit Gate ---------------------------------------
+      # Uses the composite action in this repo (ci/action.yml). It runs
+      # `zeus audit` on every .ll, merges SARIF, prints a summary table, and
+      # fails this step if any function is NOT-PROVEN (or, with strict: 'true',
+      # also UNDECIDABLE). UNDECIDABLE is never reported as false-safe.
+      - name: Zeus Audit Gate
+        id: gate
+        uses: ./ci
+        with:
+          path: build/ir
+          strict: "false"
+          sarif-out: zeus-audit.sarif
+
+      # --- Surface findings in the Security tab --------------------------
+      # Always upload, even when the gate fails, so reviewers can see exactly
+      # which secret-dependent branch/index/division tripped the gate.
+      - name: Upload SARIF to code scanning
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: zeus-audit.sarif
+          category: zeus-audit
+
+      # Optional: keep the SARIF as a build artifact too.
+      - name: Upload SARIF artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: zeus-audit-sarif
+          path: zeus-audit.sarif

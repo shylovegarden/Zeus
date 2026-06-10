@@ -1,0 +1,14 @@
+{
+  "zeus_certificate":"v1",
+  "source":"/tmp/edge.zs",
+  "source_sha256":"f86d149fca0709301c31aa7ab624521108d9d1a6df7a3a182bbd6872545d6e7f",
+  "zero_heap":true,
+  "ffi_unaudited":false,
+  "functions":[
+    {"name":"dot4","reproducible":true,"constant_time":true,"wcet_steps":123,"stack_bytes":168,"ffi_unaudited":false},
+    {"name":"relu","reproducible":true,"constant_time":true,"wcet_steps":8,"stack_bytes":72,"ffi_unaudited":false},
+    {"name":"main","reproducible":true,"constant_time":true,"wcet_steps":143,"stack_bytes":72,"ffi_unaudited":false}
+  ],
+  "signature":"f0496b89a188020c79562c008bec27071b4b25e11bb0205772ad2a1801aa3cb3c05c9e9a1c37ebbbd69c1575f61fbd9a05cd21c80410e7d72a0ed52ba0d9e404",
+  "pubkey":"ae1bf588ff199892f342c74c2bc0ef470670dba54a5109204d718c5a3c7cc85e"
+}

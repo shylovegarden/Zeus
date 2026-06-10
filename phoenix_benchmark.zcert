@@ -1,0 +1,9 @@
+{
+  "zeus_certificate":"v1",
+  "source":"./benchmarks/phoenix_benchmark.zs",
+  "source_sha256":"6266365c4ec9d3e7386f96b590fc26941c8f9329151349c600ef949f721a6b65",
+  "zero_heap":true,
+  "functions":[
+    {"name":"run_phoenix_test","reproducible":true,"constant_time":true,"wcet_steps":13,"stack_bytes":72}
+  ]
+}

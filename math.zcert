@@ -1,0 +1,16 @@
+{
+  "zeus_certificate":"v1",
+  "source":"showcase/wasm/math.zs",
+  "source_sha256":"bcf30625ca6ba845fe16259f67728e0149e21fd2e182ab2fa686cf535c42bcf4",
+  "zero_heap":true,
+  "ffi_unaudited":false,
+  "functions":[
+    {"name":"relu","reproducible":true,"constant_time":true,"wcet_steps":8,"stack_bytes":72,"ffi_unaudited":false},
+    {"name":"clampv","reproducible":true,"constant_time":true,"wcet_steps":14,"stack_bytes":88,"ffi_unaudited":false},
+    {"name":"neuron4","reproducible":true,"constant_time":true,"wcet_steps":26,"stack_bytes":104,"ffi_unaudited":false},
+    {"name":"ramp","reproducible":true,"constant_time":true,"wcet_steps":65,"stack_bytes":80,"ffi_unaudited":false},
+    {"name":"main","reproducible":true,"constant_time":true,"wcet_steps":36,"stack_bytes":64,"ffi_unaudited":false}
+  ],
+  "signature":"34513073f038e483b3e7bc806b5bba48cb2784530c59556606c4e133a7862df52690804de0b24bf6059a1f33fe87db056f33746d4905e73bfbe338d374d5c405",
+  "pubkey":"ae1bf588ff199892f342c74c2bc0ef470670dba54a5109204d718c5a3c7cc85e"
+}

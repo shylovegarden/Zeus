@@ -1,0 +1,13 @@
+{
+  "zeus_certificate":"v1",
+  "source":"/tmp/clck/ex01_hello.zs",
+  "source_sha256":"70cb3398b023247090590a58f34df13690e70133fcb0a15118c678fc97c5bcda",
+  "zero_heap":true,
+  "ffi_unaudited":false,
+  "functions":[
+    {"name":"answer","reproducible":true,"constant_time":true,"wcet_steps":2,"stack_bytes":64,"ffi_unaudited":false},
+    {"name":"main","reproducible":true,"constant_time":true,"wcet_steps":8,"stack_bytes":64,"ffi_unaudited":false}
+  ],
+  "signature":"23efa731a8a214aa84607706d961e86243c62601713b5cef7c433a33712c16b310f5ac8f18d4a2fc3e118ff26d7ef348dc2d5a31ef4a6b50f05e61d40e125800",
+  "pubkey":"688615eb64f575bb7ab65fc34d4398529df246fd263b168877100ec00eb63b42"
+}

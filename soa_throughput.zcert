@@ -1,0 +1,9 @@
+{
+  "zeus_certificate":"v1",
+  "source":"./bench/soa_throughput.zs",
+  "source_sha256":"c65a1f7638b8f6e7313f816cfca9950fb6c2a8207829032a5586d184266b728b",
+  "zero_heap":true,
+  "functions":[
+    {"name":"main","reproducible":true,"constant_time":true,"wcet_steps":null,"stack_bytes":4194392}
+  ]
+}

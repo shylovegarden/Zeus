@@ -1,0 +1,10 @@
+{
+  "zeus_certificate":"v1",
+  "source":"firmware_io_test.zs",
+  "source_sha256":"8c2a2fcabf2b531c2017fc56f13292196a81aa0e52c418efbdffce3729ece17c",
+  "zero_heap":true,
+  "functions":[
+    {"name":"main","reproducible":true,"constant_time":true,"wcet_steps":3,"stack_bytes":64},
+    {"name":"<toplevel>","reproducible":true,"constant_time":true,"wcet_steps":null,"stack_bytes":0}
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "zeus_certificate":"v1",
+  "source":"./benchmarks/phoenix_firewall.zs",
+  "source_sha256":"12b8db6602f4e8ad9259109cf9e833ca4398c83a6509bbefe865ea19c765402b",
+  "zero_heap":true,
+  "functions":[
+    {"name":"main","reproducible":true,"constant_time":true,"wcet_steps":12000000017,"stack_bytes":72}
+  ]
+}

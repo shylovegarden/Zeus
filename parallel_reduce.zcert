@@ -1,0 +1,9 @@
+{
+  "zeus_certificate":"v1",
+  "source":"./tests/cases/parallel_reduce.zs",
+  "source_sha256":"72ac2f9e903aa4636200e6c8d1065e5aff8d7c452ec21b146d790de5bc44227f",
+  "zero_heap":true,
+  "functions":[
+    {"name":"main","reproducible":true,"constant_time":true,"wcet_steps":8,"stack_bytes":72}
+  ]
+}

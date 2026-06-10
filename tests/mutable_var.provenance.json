@@ -1,0 +1,8 @@
+{
+  "_type":"https://in-toto.io/Statement/v1",
+  "subject":[{"name":"mutable_var","digest":{"sha256":"2cde8bed75aff63cd4f08edf0dbec71ab638369463ab539d6ebfa7cfa8fc748b"}}],
+  "predicateType":"https://slsa.dev/provenance/v1",
+  "predicate":{"buildDefinition":{"buildType":"https://zeus-lang.dev/buildtypes/compile/v1","externalParameters":{"source":"cases/mutable_var.zs","sourceSha256":"e4fc330a541072c293286e2ef64dccd92141ad90ea8ccebcd1d8a646852dd582"},"internalParameters":{"compilerFlags":"-O2 -march=native","builderPlatform":"linux/x86_64"},"resolvedDependencies":[{"name":"cases/mutable_var.zs","digest":{"sha256":"e4fc330a541072c293286e2ef64dccd92141ad90ea8ccebcd1d8a646852dd582"}}]},"runDetails":{"builder":{"id":"https://zeus-lang.dev/zeus_compiler@v0.1.0"},"metadata":{"invocationId":"6a288c8a-36","startedOn":"2026-06-09T21:58:34Z","finishedOn":"2026-06-09T21:58:34Z"}}},
+  "signature":"1e08c3161fb0a06867840660c2c391b5c2f3a7a759ab6bfb11c38837ef0665df62932ac3fcf74404fb6674db03b884f87d50aa50eb3a10d5a5797eb970572308",
+  "pubkey":"892dd1af9bed09dddfbff4df217d6875b71e96419d6151dc8e71407104c5cb8f"
+}

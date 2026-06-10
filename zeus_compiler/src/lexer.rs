@@ -8,6 +8,7 @@ pub enum Token {
     If,
     Else,
     For,
+    While,
     In,
     Parallel,
     Tensor,
@@ -56,6 +57,8 @@ pub enum Token {
     DoubleDot,    // ..
     Pipe,         // |
     BitwiseAnd,   // &
+    And,          // &&
+    Or,           // ||
     BitShiftLeft, // <<
     BitShiftRight,// >>
 
@@ -70,6 +73,7 @@ pub enum Token {
     // Comparators
     Equal,        // ==
     NotEqual,     // !=
+    Bang,         // ! (logical not)
     GreaterThan,  // >
     LessThan,     // <
     GreaterEqual, // >=
@@ -86,7 +90,10 @@ pub enum Token {
 }
 
 pub struct Lexer<'a> {
+    #[allow(dead_code)]
     input: &'a str,
+    chars: Vec<char>,
+    pub errors: Vec<String>,
     position: usize,
     read_position: usize,
     ch: Option<char>,
@@ -97,6 +104,8 @@ impl<'a> Lexer<'a> {
     pub fn new(input: &'a str) -> Self {
         let mut lexer = Lexer {
             input,
+            chars: input.chars().collect(),
+            errors: Vec::new(),
             position: 0,
             read_position: 0,
             ch: None,
@@ -110,21 +119,17 @@ impl<'a> Lexer<'a> {
         if let Some('\n') = self.ch {
             self.line_number += 1;
         }
-        if self.read_position >= self.input.len() {
+        if self.read_position >= self.chars.len() {
             self.ch = None;
         } else {
-            self.ch = self.input.chars().nth(self.read_position);
+            self.ch = Some(self.chars[self.read_position]);
         }
         self.position = self.read_position;
         self.read_position += 1;
     }
 
     fn peek_char(&self) -> Option<char> {
-        if self.read_position >= self.input.len() {
-            None
-        } else {
-            self.input.chars().nth(self.read_position)
-        }
+        self.chars.get(self.read_position).copied()
     }
 
     fn skip_whitespace(&mut self) {
@@ -197,7 +202,22 @@ impl<'a> Lexer<'a> {
                     Token::LessThan
                 }
             }
-            Some('&') => Token::BitwiseAnd,
+            Some('!') => {
+                if self.peek_char() == Some('=') {
+                    self.read_char();
+                    Token::NotEqual
+                } else {
+                    Token::Bang
+                }
+            }
+            Some('&') => {
+                if self.peek_char() == Some('&') {
+                    self.read_char();
+                    Token::And
+                } else {
+                    Token::BitwiseAnd
+                }
+            }
             Some('(') => Token::LParen,
             Some(')') => Token::RParen,
             Some('{') => Token::LBrace,
@@ -208,7 +228,14 @@ impl<'a> Lexer<'a> {
             Some(';') => Token::Semicolon,
             Some(':') => Token::Colon,
             Some('?') => Token::Question,
-            Some('|') => Token::Pipe,
+            Some('|') => {
+                if self.peek_char() == Some('|') {
+                    self.read_char();
+                    Token::Or
+                } else {
+                    Token::Pipe
+                }
+            }
             Some('@') => Token::AtSign,
             Some('.') => {
                 if self.peek_char() == Some('.') {
@@ -232,6 +259,7 @@ impl<'a> Lexer<'a> {
                     "if" => Token::If,
                     "else" => Token::Else,
                     "for" => Token::For,
+                    "while" => Token::While,
                     "in" => Token::In,
                     "parallel" => Token::Parallel,
                     "tensor" => Token::Tensor,
@@ -284,7 +312,7 @@ impl<'a> Lexer<'a> {
                 break;
             }
         }
-        self.input[position..self.position].to_string()
+        self.chars[position..self.position].iter().collect()
     }
 
     fn read_number(&mut self) -> f64 {
@@ -301,7 +329,14 @@ impl<'a> Lexer<'a> {
                 break;
             }
         }
-        self.input[position..self.position].parse().unwrap_or(0.0)
+        let text: String = self.chars[position..self.position].iter().collect();
+        let val: f64 = text.parse().unwrap_or(0.0);
+        if !val.is_finite() {
+            self.errors.push(format!("line {}: numeric literal '{}' is out of range", self.line_number, text));
+        } else if text.chars().all(|c| c.is_ascii_digit()) && text.parse::<i64>().is_err() {
+            self.errors.push(format!("line {}: integer literal '{}' exceeds 64-bit range", self.line_number, text));
+        }
+        val
     }
 
     fn read_string(&mut self) -> String {
@@ -313,7 +348,7 @@ impl<'a> Lexer<'a> {
             }
             self.read_char();
         }
-        let result = self.input[position..self.position].to_string();
+        let result = self.chars[position..self.position].iter().collect();
         self.read_char(); // skip closing quote
         result
     }

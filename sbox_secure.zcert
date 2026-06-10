@@ -1,0 +1,9 @@
+{
+  "zeus_certificate":"v1",
+  "source":"./showcase/sbox_secure.zs",
+  "source_sha256":"5b74928cd9950a849ab10405562ebd3206f9b4c068dc84257aee99a95eca8e77",
+  "zero_heap":true,
+  "functions":[
+    {"name":"main","reproducible":true,"constant_time":true,"wcet_steps":null,"stack_bytes":2168}
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "zeus_certificate":"v1",
+  "source":"ffi_escape_test.zs",
+  "source_sha256":"4a5a4244a84145848af5d1f00f336f7380b29e42bd89e0cf0671b0f1bd9a2836",
+  "zero_heap":false,
+  "ffi_unaudited":true,
+  "functions":[
+    {"name":"run_ffi_test","reproducible":true,"constant_time":false,"wcet_steps":null,"stack_bytes":88,"ffi_unaudited":true}
+  ],
+  "signature":"5cb863a75c59a44bbadabeadf7ed9d73515531e2a3b11b64fd848ae09760db803982c064d63306fe8886fad9dc6d69d04392a1f52b64b9233cd697160b437e08",
+  "pubkey":"ae1bf588ff199892f342c74c2bc0ef470670dba54a5109204d718c5a3c7cc85e"
+}

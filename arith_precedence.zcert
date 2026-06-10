@@ -1,0 +1,9 @@
+{
+  "zeus_certificate":"v1",
+  "source":"./tests/cases/arith_precedence.zs",
+  "source_sha256":"87f8d424d6bba1a503aec6d93fa57dbb58cbb26968541f02ef8b2f95b7d835b3",
+  "zero_heap":true,
+  "functions":[
+    {"name":"main","reproducible":true,"constant_time":true,"wcet_steps":24,"stack_bytes":96}
+  ]
+}

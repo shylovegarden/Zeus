@@ -1,0 +1,6 @@
+[package]
+name = ""debug_lex""
+version = ""0.1.0""
+edition = ""2021""
+[dependencies]
+zeus_compiler = { path = "".."" }

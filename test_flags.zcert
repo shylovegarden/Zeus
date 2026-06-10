@@ -1,0 +1,10 @@
+{
+  "zeus_certificate":"v1",
+  "source":"test_flags.zs",
+  "source_sha256":"62d6cc076477303cdac00dfe017aceadf09f9714d4db07b6a0dfb4c7dcf96fae",
+  "zero_heap":true,
+  "functions":[
+    {"name":"process_data","reproducible":true,"constant_time":true,"wcet_steps":2,"stack_bytes":80},
+    {"name":"main","reproducible":true,"constant_time":true,"wcet_steps":4,"stack_bytes":64}
+  ]
+}

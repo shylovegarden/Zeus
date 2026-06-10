@@ -1,0 +1,3 @@
+(x Star 1) Equal x|VERIFIED
+(x Star x) GreaterEqual 0|VERIFIED
+(x Plus 1) GreaterThan x|VERIFIED

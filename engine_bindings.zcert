@@ -1,0 +1,9 @@
+{
+  "zeus_certificate":"v1",
+  "source":"./showcase/engine_bindings.zs",
+  "source_sha256":"5a7d46fbc2684c29f9c43c209d066c14b81b87d2ee80c9555daa80b64a1a1d34",
+  "zero_heap":true,
+  "functions":[
+
+  ]
+}

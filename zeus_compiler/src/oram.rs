@@ -1,63 +1,94 @@
 use crate::ast::*;
+use std::collections::HashSet;
 
 /// A middle-end compiler pass that intercepts memory access nodes in the AST.
-/// Transforms a simple `read` or `write` (IndexAccess) into a randomized Path ORAM tree access
-/// (OramAccess) to disguise the true data access pattern from hardware side-channel attacks.
+/// Transforms an array `read`/`write` (IndexAccess) into a randomized Path-ORAM
+/// access (OramAccess) to disguise the true data-access pattern from cache-timing
+/// and hardware side-channel adversaries.
+///
+/// # OPT-IN SECURITY MODEL
+/// ORAM is **not** applied to every array. It is applied *only* to arrays whose
+/// backing variable is declared with the `secret` keyword. Non-secret arrays keep
+/// a direct `IndexAccess` and run at full native (C) speed.
+///
+/// This is the core of Zeus's "fast AND secure" promise: you pay the ORAM cost
+/// (~10x memory traffic) exactly where you ask for privacy, and nowhere else.
+/// A `secret` array is therefore protected on two axes simultaneously - its
+/// contents are wiped from RAM at scope exit (cold-boot resistance) and its
+/// access pattern is flattened (cache-timing resistance).
 pub fn flatten_memory_accesses(program: &mut Program) {
+    let mut scope: HashSet<String> = HashSet::new();
     for stmt in &mut program.statements {
-        transform_statement(stmt);
+        transform_statement(stmt, &mut scope);
     }
 }
 
-fn transform_statement(stmt: &mut Statement) {
+/// Resolve the root identifier of a (possibly nested) lvalue expression so we can
+/// tell whether the array being indexed was declared `secret`.
+fn root_ident(expr: &Expression) -> Option<String> {
+    match expr {
+        Expression::Identifier(n) => Some(n.clone()),
+        Expression::IndexAccess { base, .. } => root_ident(base),
+        Expression::OramAccess { base, .. } => root_ident(base),
+        Expression::FieldAccess { base, .. } => root_ident(base),
+        _ => None,
+    }
+}
+
+/// Process a nested block in a child scope that inherits the parent's secret
+/// bindings but does not leak its own declarations back out (lexical scoping).
+fn transform_block(stmts: &mut [Statement], parent: &HashSet<String>) {
+    let mut child = parent.clone();
+    for s in stmts {
+        transform_statement(s, &mut child);
+    }
+}
+
+fn transform_statement(stmt: &mut Statement, scope: &mut HashSet<String>) {
     match stmt {
-        Statement::Let { value, .. } => transform_expression(value),
-        Statement::ExpressionStatement(expr) => transform_expression(expr),
-        Statement::If { condition, consequence, alternative } => {
-            transform_expression(condition);
-            for s in consequence {
-                transform_statement(s);
+        Statement::Let { value, is_secret, name, .. } => {
+            transform_expression(value, scope);
+            // A secret binding is visible only *after* its declaration.
+            if *is_secret {
+                scope.insert(name.clone());
             }
+        }
+        Statement::ExpressionStatement(expr) => transform_expression(expr, scope),
+        Statement::If { condition, consequence, alternative } => {
+            transform_expression(condition, scope);
+            transform_block(consequence, scope);
             if let Some(alt) = alternative {
-                for s in alt {
-                    transform_statement(s);
-                }
+                transform_block(alt, scope);
             }
         }
         Statement::For { start, end, body, .. } => {
-            transform_expression(start);
-            transform_expression(end);
-            for s in body {
-                transform_statement(s);
-            }
+            transform_expression(start, scope);
+            transform_expression(end, scope);
+            transform_block(body, scope);
+        }
+        Statement::While { condition, body } => {
+            transform_expression(condition, scope);
+            transform_block(body, scope);
         }
         Statement::ParallelBlock { start, end, statements, .. } => {
-            transform_expression(start);
-            transform_expression(end);
-            for s in statements {
-                transform_statement(s);
-            }
+            transform_expression(start, scope);
+            transform_expression(end, scope);
+            transform_block(statements, scope);
         }
         Statement::FunctionDeclaration { body, .. } => {
-            for s in body {
-                transform_statement(s);
-            }
+            transform_block(body, scope);
         }
         Statement::TestDeclaration { body, .. } => {
-            for s in body {
-                transform_statement(s);
-            }
+            transform_block(body, scope);
         }
         Statement::Return(expr) | Statement::Assert(expr) => {
-            transform_expression(expr);
+            transform_expression(expr, scope);
         }
         Statement::TargetBlock { statements, .. } | Statement::ProofBlock { statements, .. }
         | Statement::SafeStateBlock { statements, .. } | Statement::EnclaveBlock { statements, .. }
         | Statement::CfgBlock { statements, .. } | Statement::ComptimeBlock { statements, .. }
         | Statement::ClusterBlock { statements, .. } => {
-            for s in statements {
-                transform_statement(s);
-            }
+            transform_block(statements, scope);
         }
         Statement::StructDeclaration { .. }
         | Statement::ExternFunctionDeclaration { .. }
@@ -68,53 +99,62 @@ fn transform_statement(stmt: &mut Statement) {
     }
 }
 
-fn transform_expression(expr: &mut Expression) {
+fn transform_expression(expr: &mut Expression, scope: &HashSet<String>) {
     let mut replace_with_oram = false;
 
-    // First recurse into inner expressions
+    // First recurse into inner expressions.
     match expr {
         Expression::IndexAccess { base, index } => {
-            transform_expression(base);
-            transform_expression(index);
-            replace_with_oram = true;
+            transform_expression(base, scope);
+            transform_expression(index, scope);
+            // OPT-IN: only rewrite to ORAM when the indexed array is `secret`.
+            if root_ident(base).map_or(false, |r| scope.contains(&r)) {
+                replace_with_oram = true;
+            }
         }
         Expression::Infix { left, right, .. } => {
-            transform_expression(left);
-            transform_expression(right);
+            transform_expression(left, scope);
+            transform_expression(right, scope);
         }
         Expression::FunctionCall { arguments, .. } => {
             for arg in arguments {
-                transform_expression(arg);
+                transform_expression(arg, scope);
             }
         }
         Expression::StructInit { fields, .. } => {
             for (_, val) in fields {
-                transform_expression(val);
+                transform_expression(val, scope);
             }
         }
         Expression::FieldAccess { base, .. } => {
-            transform_expression(base);
+            transform_expression(base, scope);
         }
         Expression::Try(inner) | Expression::Comptime(inner) => {
-            transform_expression(inner);
+            transform_expression(inner, scope);
         }
         Expression::TensorDefinition { dimensions } => {
             for dim in dimensions {
-                transform_expression(dim);
+                transform_expression(dim, scope);
             }
         }
         Expression::OramAccess { base, index } => {
-            transform_expression(base);
-            transform_expression(index);
+            transform_expression(base, scope);
+            transform_expression(index, scope);
         }
         Expression::NvmeDmaMap { path, size } => {
-            transform_expression(path);
-            transform_expression(size);
+            transform_expression(path, scope);
+            transform_expression(size, scope);
+        }
+        Expression::Prefix { operand, .. } => {
+            transform_expression(operand, scope);
+        }
+        Expression::ArrayLiteral(elements) => {
+            for el in elements { transform_expression(el, scope); }
         }
         Expression::Identifier(_) | Expression::Number(_) | Expression::StringLiteral(_) => {}
     }
 
-    // Now if it is an IndexAccess, rewrite it to OramAccess
+    // Rewrite a secret IndexAccess into an OramAccess.
     if replace_with_oram {
         if let Expression::IndexAccess { base, index } = expr.clone() {
             *expr = Expression::OramAccess { base, index };

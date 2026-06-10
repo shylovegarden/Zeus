@@ -1,0 +1,9 @@
+{
+  "zeus_certificate":"v1",
+  "source":"./zeus_compiler/mlir_test.zs",
+  "source_sha256":"07a8e7a07126b2250fc92f71499594e8116c176c512bc3cab054e53273f72a75",
+  "zero_heap":true,
+  "functions":[
+    {"name":"gpu_kernel","reproducible":true,"constant_time":true,"wcet_steps":4,"stack_bytes":64}
+  ]
+}

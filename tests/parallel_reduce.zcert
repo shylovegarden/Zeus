@@ -1,0 +1,12 @@
+{
+  "zeus_certificate":"v1",
+  "source":"cases/parallel_reduce.zs",
+  "source_sha256":"72ac2f9e903aa4636200e6c8d1065e5aff8d7c452ec21b146d790de5bc44227f",
+  "zero_heap":false,
+  "ffi_unaudited":false,
+  "functions":[
+    {"name":"main","reproducible":true,"constant_time":true,"wcet_steps":8,"stack_bytes":72,"ffi_unaudited":false}
+  ],
+  "signature":"87c5138948453f578fbbf22df74827aef4e66b319aac6cce6600f24b66025fb5dd0c62d9a8b21c7243aaaf9318489b7791fee9abe4bebc6cb52e89adce96fa01",
+  "pubkey":"892dd1af9bed09dddfbff4df217d6875b71e96419d6151dc8e71407104c5cb8f"
+}

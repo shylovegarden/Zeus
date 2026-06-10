@@ -1,0 +1,9 @@
+{
+  "zeus_certificate":"v1",
+  "source":"./benchmarks/nvme_test.zs",
+  "source_sha256":"36364f5103b616a7dc1de1c4672623706cefef5ec5e75e39a803ec6bac08c3de",
+  "zero_heap":true,
+  "functions":[
+    {"name":"main","reproducible":true,"constant_time":true,"wcet_steps":16,"stack_bytes":64}
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "zeus_certificate":"v1",
+  "source":"./tests/failed/dynamic_heap_error3.zs",
+  "source_sha256":"36cdf3ede86208d450edcfad298a77f2788befa3b6b3258979778ff0c2ee70cb",
+  "zero_heap":true,
+  "functions":[
+    {"name":"main","reproducible":true,"constant_time":true,"wcet_steps":0,"stack_bytes":72}
+  ]
+}

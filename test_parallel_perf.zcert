@@ -1,0 +1,9 @@
+{
+  "zeus_certificate":"v1",
+  "source":"test_parallel_perf.zs",
+  "source_sha256":"dae1757a9ff530cfc937aac1e5c8581c2bb601362ea294b5ec50e77f6560c368",
+  "zero_heap":true,
+  "functions":[
+    {"name":"main","reproducible":true,"constant_time":true,"wcet_steps":10,"stack_bytes":80}
+  ]
+}

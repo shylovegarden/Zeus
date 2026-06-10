@@ -1,0 +1,10 @@
+{
+  "zeus_certificate":"v1",
+  "source":"ai_task_bad.zs",
+  "source_sha256":"382b24a899144f80b29b5e0b91447ddc1439ae33c79497473811b7e46e46ffb7",
+  "zero_heap":true,
+  "functions":[
+    {"name":"task","reproducible":true,"constant_time":true,"wcet_steps":null,"stack_bytes":88},
+    {"name":"main","reproducible":true,"constant_time":true,"wcet_steps":null,"stack_bytes":64}
+  ]
+}

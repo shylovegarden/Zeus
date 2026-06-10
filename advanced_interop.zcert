@@ -1,0 +1,9 @@
+{
+  "zeus_certificate":"v1",
+  "source":"./zeus_lang/advanced_interop.zs",
+  "source_sha256":"aef19b8802d504cada4069d27c0b8138924e1154fb1bb4dd88e5f31378678888",
+  "zero_heap":true,
+  "functions":[
+    {"name":"calculate_ai_load","reproducible":true,"constant_time":true,"wcet_steps":4,"stack_bytes":88}
+  ]
+}

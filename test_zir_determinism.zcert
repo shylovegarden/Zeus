@@ -1,0 +1,11 @@
+{
+  "zeus_certificate":"v1",
+  "source":"test_zir_determinism.zs",
+  "source_sha256":"a7ef770aad27d720652dc1ee464112aaefe0004062d7a3cc3799e954901784af",
+  "zero_heap":true,
+  "functions":[
+    {"name":"pure_add","reproducible":true,"constant_time":true,"wcet_steps":4,"stack_bytes":80},
+    {"name":"impure","reproducible":false,"constant_time":true,"wcet_steps":15,"stack_bytes":80},
+    {"name":"main","reproducible":true,"constant_time":true,"wcet_steps":12,"stack_bytes":64}
+  ]
+}

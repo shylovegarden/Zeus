@@ -1,0 +1,8 @@
+{
+  "_type":"https://in-toto.io/Statement/v1",
+  "subject":[{"name":"int_types","digest":{"sha256":"c67c7667d5f4e5758abe142b89b74d721e0cae3b26367a216c832de402861f35"}}],
+  "predicateType":"https://slsa.dev/provenance/v1",
+  "predicate":{"buildDefinition":{"buildType":"https://zeus-lang.dev/buildtypes/compile/v1","externalParameters":{"source":"cases/int_types.zs","sourceSha256":"751fe7ea9c9908bfdb1794efc4db6888f8754efdbc46815ce8054536bbacc8c4"},"internalParameters":{"compilerFlags":"-O2 -march=native","builderPlatform":"linux/x86_64"},"resolvedDependencies":[{"name":"cases/int_types.zs","digest":{"sha256":"751fe7ea9c9908bfdb1794efc4db6888f8754efdbc46815ce8054536bbacc8c4"}}]},"runDetails":{"builder":{"id":"https://zeus-lang.dev/zeus_compiler@v0.1.0"},"metadata":{"invocationId":"6a288c89-28","startedOn":"2026-06-09T21:58:33Z","finishedOn":"2026-06-09T21:58:33Z"}}},
+  "signature":"459802ab87ce88ecfc0a477f3a5dc7e7ab15b2f5a5323827a49fb6349c9f580e4b8e61a2e205620e212f2a6d3bf0383eec8f334a1d73cfb853836774f5f4a601",
+  "pubkey":"892dd1af9bed09dddfbff4df217d6875b71e96419d6151dc8e71407104c5cb8f"
+}

@@ -1,0 +1,9 @@
+{
+  "zeus_certificate":"v1",
+  "source":"./benchmarks/ai_inference.zs",
+  "source_sha256":"38481dae7cbdc5fecb35020a9d66d6d6d9afc48a795004ae0bb58b5a3edc8658",
+  "zero_heap":true,
+  "functions":[
+    {"name":"main","reproducible":true,"constant_time":true,"wcet_steps":20,"stack_bytes":88}
+  ]
+}

@@ -1,0 +1,10 @@
+{
+  "zeus_certificate":"v1",
+  "source":"./tests/cases/fn_call.zs",
+  "source_sha256":"fc7401b4073cd48377379916e3e7afc75a2d1f3667f896354fa50d73d62e7466",
+  "zero_heap":true,
+  "functions":[
+    {"name":"square","reproducible":true,"constant_time":true,"wcet_steps":4,"stack_bytes":72},
+    {"name":"main","reproducible":true,"constant_time":true,"wcet_steps":12,"stack_bytes":80}
+  ]
+}

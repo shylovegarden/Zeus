@@ -1,25 +1,95 @@
-# ZEUS Architecture
-**The Zero-Bloat, Bare-Metal AI Systems Engine**
+# Zeus
 
-Zeus is an uncompromising compiler and systems programming language designed to run AI models and concurrent software at the absolute physical limits of hardware. It is built to completely bypass the legacy bottlenecks of modern Operating Systems (such as the Linux kernel's Virtual File System, `pthread` context switches, and garbage collection pauses).
+**A source-to-source systems language that compiles `.zs` to readable, zero-heap, side-channel-hardened C — then to a native binary.**
 
-## Core Pillars
-1. **The Zero-Heap Enforcer**: Zeus physically bans dynamic memory allocation (`malloc`, `free`). All memory is statically bound to arenas, guaranteeing absolute determinism and zero fragmentation.
-2. **Lock-Free Cooperative Fibers**: Concurrency is achieved without OS-level `pthread` mutexes. Zeus implements an M:N fiber scheduler with Lock-Free Chase-Lev Work-Stealing Deques, yielding 100% core utilization.
-3. **The Phoenix Firewall**: For mission-critical environments, a dedicated out-of-band Sentinel Core (`fork()` + `mmap MAP_SHARED`) snoops execution cycles via hardware `__rdtsc()`. If a fiber is trapped in a DDoS payload or infinite loop, the firewall permanently marks it dead and vaporizes its memory space.
-4. **Native Tensor Calculus**: Tensors and linear algebra are natively integrated via SIMD instructions.
-5. **The Anti-Bloat Enforcer**: The Zeus compiler natively sweeps its own AST and generated C-bridges for legacy software abstractions. If a banned paradigm is detected, it terminates the build.
-6. **Universal Hardware Blueprints**: Targets can be defined entirely abstractly via `.zeus_arch` blueprints (e.g. Photonic ASICs, Quantum chips), enabling Zeus to bypass hardcoded targets.
+Zeus is a Rust-based compiler. You write `.zs`; Zeus emits constrained C (no heap,
+optional oblivious memory, optional Z3-checked assertions) and hands it to
+`clang`/`gcc` to build a normal native executable.
 
-## Usage
-Currently Zeus is run via its Rust-based compiler engine.
+Zeus is **not** an operating system and does not bypass the kernel. Generated
+programs are ordinary user-space processes. For the full honest breakdown of what
+is real vs. aspirational, see **[`ZEUS_REAL_STATE.md`](ZEUS_REAL_STATE.md)**.
+
+---
+
+## What it does today
+
+- **Compiles `.zs` → C → native binary** via clang/gcc.
+- **Zero-heap enforcer** — the build is *aborted* if the generated C contains `malloc`, `calloc`, `free`, `<pthread.h>`, or `<stdlib.h>`. All memory comes from a static `mmap`-backed arena.
+- **`secret` keyword** — variables tagged `secret` get a `volatile` memory wipe plus a compiler memory barrier at scope exit (survives `-O3`).
+- **Oblivious memory (opt-in)** — indexing a `secret` array compiles to a branchless, constant-time **full O(n) scan**, so the access pattern doesn't leak the index. Non-secret arrays stay fast and direct.
+- **Automatic SoA transform** — arrays of structs are decomposed into per-field arrays, each `aligned(32)` for AVX2 auto-vectorization; field accesses are rewritten automatically.
+- **Multi-core `parallel` blocks** — fork-join across all cores using `fork()` + a `MAP_SHARED` arena; reductions are aggregated correctly after join.
+- **`@verify` / `assert` with Z3** — constant assertions are folded at compile time; symbolic ones are proved by the real `z3` solver (a counterexample is printed on failure). Falls back to a runtime check if `z3` isn't installed.
+- **Typed locals** — `i32`, `u64`, `bool`, `f64` annotations flow through to C; correct operator precedence and lexical scoping.
+
+## Build
+
+The compiler lives in `zeus_compiler/`. Build and run it with Cargo:
+
 ```bash
-# Example: Building the AI inference benchmark on a Photonic Tensor Node
-cargo run -- build ../benchmarks/ai_inference.zs --arch=../benchmarks/photonic.zeus_arch
+cd zeus_compiler
+cargo build --release
+# the compiler is currently driven via cargo:
+cargo run -- build ../hello_world.zs
 ```
 
-### The Codex
-For deep architectural insights, the laws of the system, and the reasoning behind our rebellion against the OS kernel, consult `THE_ZEUS_CODEX.md` (stored locally in the artifacts directory).
+Requirements: a Rust toolchain, plus `clang` or `gcc` on `PATH`. Install `z3` to
+enable static formal verification (optional — without it, assertions become
+runtime checks).
 
-## Security and Secrets
-All hardware matrix blueprints (`*.zeus_arch`) are strictly ignored via `.gitignore` to prevent leaking proprietary topological architectures to public repositories.
+## Compile a `.zs` file
+
+```bash
+cd zeus_compiler
+cargo run -- build  ../hello_world.zs   # emit hello_world.c/.h and build a native binary
+cargo run -- run    ../hello_world.zs   # build and execute
+cargo run -- verify ../test_verify_z3.zs  # run Z3 verification only
+cargo run -- test   ../hello_world.zs   # run `test fn` blocks
+```
+
+The compiler writes `<name>.c` and `<name>.h` next to the input and produces the
+native binary `<name>`.
+
+## Example
+
+```zeus
+struct Entry { val: f64 }
+
+pub fn main() {
+    // `secret` => wiped at scope exit AND accessed obliviously (constant-time scan)
+    let secret sbox = Entry[256];
+    let i = 5;
+    sbox[i].val = 42.0;          // oblivious write
+    let got = sbox[i].val;       // oblivious read
+
+    // typed locals + compile-time proof
+    let counter: u64 = 0;
+    proof { assert(counter >= 0); }   // proved by Z3 (or runtime-checked if z3 absent)
+
+    // multi-core fork-join
+    parallel (k in 0..1000) {
+        let x = k * k;
+    }
+}
+```
+
+## Roadmap (not yet built)
+
+The following appear in the vision/manifesto but are **stubs, honest no-ops, or
+aspirational** today — see `ZEUS_REAL_STATE.md` for specifics:
+
+- OS-level / bare-metal-without-OS execution and kernel bypass.
+- Hardware enclaves (SGX/SEV) — `enclave` blocks are currently just compiler barriers.
+- `cluster` / RDMA distributed execution — currently runs in-process.
+- IOMMU/VFIO DMA firewalling and NVMe kernel-bypass storage.
+- GPU / Tensor-Core / AMX / MLIR hardware backends (`--mlir` emits a text dump only).
+- M:N fiber scheduler and single-digit-nanosecond task switching (current model is process fork-join).
+- Machine-learning auto-tuning (`--tune` uses mock weights; the "micro-AI" is a static heuristic).
+- Indistinguishability obfuscation (the "garbled circuit" path is a labeled simulation).
+- A full type checker, generics, strings, and a standalone shippable `zeus` binary.
+
+## License / status
+
+Prototype, v0.1.0. Treat the verified core as usable-and-rare; treat the roadmap
+items as intent, not capability.

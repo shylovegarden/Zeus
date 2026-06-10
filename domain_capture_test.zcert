@@ -1,0 +1,10 @@
+{
+  "zeus_certificate":"v1",
+  "source":"domain_capture_test.zs",
+  "source_sha256":"dbfa866d38574d3fe6bdc55b516e2a8efc9b971dc997e3542f52e60056b8b26f",
+  "zero_heap":true,
+  "functions":[
+    {"name":"process_secure_data","reproducible":true,"constant_time":true,"wcet_steps":4,"stack_bytes":80},
+    {"name":"ai_matmul","reproducible":true,"constant_time":true,"wcet_steps":13,"stack_bytes":80}
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "zeus_certificate":"v1",
+  "source":"cases/soa_particles.zs",
+  "source_sha256":"c780f98989816f13cbc39aad607da9b5d03f2a7631987b2e74eb5cbde2daccb3",
+  "zero_heap":true,
+  "ffi_unaudited":false,
+  "functions":[
+    {"name":"main","reproducible":true,"constant_time":true,"wcet_steps":26,"stack_bytes":1096,"ffi_unaudited":false}
+  ],
+  "signature":"c98cbbe3ada173c608d3b17c61328216d4c448daf61ccdcbaffcc3bdbb44ba36c80a28355079f89161918bd3147b8cef35a2d1b5adac68c8e1cef5bb69e6b606",
+  "pubkey":"892dd1af9bed09dddfbff4df217d6875b71e96419d6151dc8e71407104c5cb8f"
+}

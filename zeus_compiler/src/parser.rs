@@ -7,31 +7,68 @@ pub struct Parser<'a> {
     peek_token: Token,
     errors: Vec<String>,
     parsing_tensor_dims: bool,
+    expression_depth: usize,
+    /// When true, a `{` after an identifier is NOT a struct literal. Set while
+    /// parsing if/while conditions so `if x { }` is not misread as `x { }`.
+    no_struct_literal: bool,
+    /// Source line of current_token / peek_token (1-based) for diagnostics.
+    current_line: usize,
+    peek_line: usize,
+    /// Monotonic count of tokens consumed; used as a forward-progress marker so
+    /// the top-level parse loop can never spin without consuming input.
+    advance_count: usize,
 }
 
 impl<'a> Parser<'a> {
     pub fn new(mut lexer: Lexer<'a>) -> Self {
         let current_token = lexer.next_token();
+        let current_line = lexer.line_number;
         let peek_token = lexer.next_token();
-        
+        let peek_line = lexer.line_number;
+
         Parser {
             lexer,
             current_token,
             peek_token,
             errors: Vec::new(),
             parsing_tensor_dims: false,
+            expression_depth: 0,
+            no_struct_literal: false,
+            current_line,
+            peek_line,
+            advance_count: 0,
         }
     }
 
     fn next_token(&mut self) {
         self.current_token = self.peek_token.clone();
+        self.current_line = self.peek_line;
         self.peek_token = self.lexer.next_token();
+        self.peek_line = self.lexer.line_number;
+        self.advance_count += 1;
     }
 
     fn advance_after_statement(&mut self, prev_token: &Token) {
+        // Block statements (if/for/parallel/target/proof/safestate/enclave/cluster/
+        // comptime) already consume their own closing '}' and leave the cursor on the
+        // NEXT statement's first token. Advancing again here would skip that statement
+        // whenever it starts with an identifier (e.g. `x = 2;` or `foo();` right after
+        // a block), which silently dropped it.
+        if matches!(prev_token,
+            Token::If | Token::For | Token::While | Token::Parallel | Token::Target | Token::Proof
+            | Token::SafeState | Token::Enclave | Token::Cluster | Token::Comptime) {
+            return;
+        }
         if self.current_token == Token::Semicolon {
             self.next_token();
-        } else if &self.current_token == prev_token {
+        } else if !self.is_statement_start()
+               && self.current_token != Token::RBrace
+               && self.current_token != Token::Eof {
+            // We're left on a non-statement-starting token after a parse (e.g. the closing ')'
+            // of a function call expression). Advance once to prevent an infinite loop.
+            // We deliberately do NOT advance when current_token is a statement-start keyword
+            // (let, pub, fn, parallel, etc.) because that would eat the next valid statement —
+            // which was the root cause of the original "consecutive let" bug.
             self.next_token();
         }
     }
@@ -45,13 +82,25 @@ impl<'a> Parser<'a> {
             let current_line = self.lexer.line_number;
             program.statements.push(Statement::LineDirective(current_line));
 
+            let progress_before = self.advance_count;
             let prev_token = self.current_token.clone();
             if let Some(stmt) = self.parse_statement() {
                 program.statements.push(stmt);
             }
             self.advance_after_statement(&prev_token);
+            // Forward-progress guard: if a sub-parser failed without consuming any
+            // token, force-advance one so the loop can never spin (which used to grow
+            // `statements` with LineDirectives until multi-GB OOM, e.g. `fn f32`).
+            if self.advance_count == progress_before && self.current_token != Token::Eof {
+                self.errors.push(format!(
+                    "line {}: skipping unparseable token {:?}", self.current_line, self.current_token));
+                self.next_token();
+            }
         }
 
+        // Surface any lexer-level errors (e.g. out-of-range numeric literals).
+        let mut lex_errs = std::mem::take(&mut self.lexer.errors);
+        self.errors.append(&mut lex_errs);
         program
     }
 
@@ -60,7 +109,7 @@ impl<'a> Parser<'a> {
         matches!(self.current_token,
             Token::Struct | Token::Component | Token::Let | Token::Parallel |
             Token::Target | Token::Proof | Token::SafeState | Token::Enclave |
-            Token::Comptime | Token::If | Token::For | Token::Return |
+            Token::Comptime | Token::If | Token::For | Token::While | Token::Return |
             Token::Assert | Token::Test |
             Token::AtSign | Token::Panic | Token::Extern | Token::Pub | Token::Fn | Token::Cluster
         )
@@ -122,6 +171,7 @@ impl<'a> Parser<'a> {
                 Some(Statement::Import(path))
             }
             Token::For => self.parse_for_statement(),
+            Token::While => self.parse_while_statement(),
             Token::Return => {
                 self.next_token(); // consume 'return'
                 let expr = self.parse_expression()?;
@@ -256,7 +306,10 @@ impl<'a> Parser<'a> {
                     if self.current_token != Token::LParen { return None; }
                     self.next_token(); // consume '('
                     
-                    // Try to parse expression - if it fails, skip to RParen gracefully
+                    // Parse the condition expression. After parse_expression returns,
+                    // current_token is on the last token of the expression for non-advancing
+                    // prefix types (Identifier stays put), but already past it for others
+                    // (Number calls next_token internally). Normalize by advancing if not at ')'.
                     let expr = match self.parse_expression() {
                         Some(e) => e,
                         None => {
@@ -267,7 +320,17 @@ impl<'a> Parser<'a> {
                             crate::ast::Expression::Number(1.0) // Placeholder truthy value
                         }
                     };
-                    
+
+                    // Advance to RParen if parse_expression left us before it
+                    if self.current_token != Token::RParen {
+                        self.next_token();
+                    }
+                    // If still not at RParen, skip to it as a recovery
+                    if self.current_token != Token::RParen {
+                        while self.current_token != Token::RParen && self.current_token != Token::Eof {
+                            self.next_token();
+                        }
+                    }
                     if self.current_token != Token::RParen { return None; }
                     self.next_token(); // consume ')'
                     attributes.push(crate::ast::FunctionAttribute::Verify(expr, false));
@@ -298,6 +361,44 @@ impl<'a> Parser<'a> {
                     attributes.push(crate::ast::FunctionAttribute::FfiExport);
                     // Continue loop to collect more attributes if present
                 }
+                Token::Identifier(id) if id == "requires" || id == "ensures" => {
+                    let is_requires = id == "requires";
+                    self.next_token(); // consume 'requires'/'ensures'
+                    if self.current_token != Token::LParen { return None; }
+                    self.next_token(); // consume '('
+                    let expr = self.parse_expression()?;
+                    if self.current_token != Token::RParen { self.next_token(); }
+                    if self.current_token != Token::RParen { return None; }
+                    self.next_token(); // consume ')'
+                    if is_requires {
+                        attributes.push(crate::ast::FunctionAttribute::Requires(expr, true));
+                    } else {
+                        attributes.push(crate::ast::FunctionAttribute::Ensures(expr, true));
+                    }
+                }
+                Token::Identifier(id) if id == "constant_time" => {
+                    self.next_token(); // consume 'constant_time'
+                    if self.current_token == Token::LParen {
+                        self.next_token();
+                        if self.current_token == Token::RParen { self.next_token(); }
+                    }
+                    attributes.push(crate::ast::FunctionAttribute::ConstantTime);
+                }
+                Token::Identifier(id) if id == "wcet" || id == "stack" => {
+                    let is_wcet = id == "wcet";
+                    self.next_token(); // consume kw
+                    if self.current_token != Token::LParen { return None; }
+                    self.next_token(); // consume '('
+                    let n = if let Token::Number(v) = self.current_token { v as u64 } else { 0 };
+                    self.next_token(); // consume number -> ')'
+                    if self.current_token != Token::RParen { return None; }
+                    self.next_token(); // consume ')'
+                    if is_wcet {
+                        attributes.push(crate::ast::FunctionAttribute::Wcet(n));
+                    } else {
+                        attributes.push(crate::ast::FunctionAttribute::Stack(n));
+                    }
+                }
                 Token::Identifier(id) if id == "atomic_add" => {
                     self.next_token(); // consume 'atomic_add'
                     if self.current_token != Token::LParen { return None; }
@@ -323,7 +424,25 @@ impl<'a> Parser<'a> {
                     }
                     return Some(Statement::AtomicAdd { target, amount });
                 }
-                _ => return None,
+                Token::Identifier(id) if id == "deterministic" => {
+                    self.next_token(); // consume 'deterministic'
+                    if self.current_token == Token::LParen {
+                        self.next_token();
+                        if self.current_token == Token::RParen { self.next_token(); }
+                    }
+                    // Accepted annotation. The determinism PROPERTY is computed by ZIR and
+                    // reported by `zeus audit`/`cert` (gate with `--require=reproducible`).
+                    // Kept as an explicit arm so it never drops sibling attributes (e.g. @wcet).
+                }
+                _ => {
+                    // Unknown/misplaced attribute: FAIL LOUDLY rather than silently dropping
+                    // the attributes already collected (a typo'd `@wceet(5)` on a safety-
+                    // critical function must not be silently ignored).
+                    self.errors.push(format!(
+                        "line {}: unknown or misplaced attribute (known: @wcet @stack @constant_time @deterministic @verify @requires @ensures @adaptive @ffi_export @cfg)",
+                        self.current_line));
+                    return None;
+                }
             }
         }
 
@@ -425,17 +544,32 @@ impl<'a> Parser<'a> {
                 n
             }
             _ => {
-                self.errors.push("Expected identifier after let".to_string());
+                self.errors.push(format!("line {}: Expected identifier after let", self.current_line));
                 return None;
             }
         };
 
-        if self.peek_token != Token::Assign {
-            self.errors.push("Expected '=' in let statement".to_string());
-            return None;
-        }
-        self.next_token(); // move to '='
-        self.next_token(); // move past '='
+        // Optional type annotation:  let name: Type = value
+        let var_type = if self.peek_token == Token::Colon {
+            self.next_token(); // current = ':'
+            self.next_token(); // current = first token of the type
+            let t = self.parse_type();
+            // parse_type leaves the cursor on the token AFTER the type ('=').
+            if self.current_token != Token::Assign {
+                self.errors.push(format!("line {}: Expected '=' after type annotation in let statement", self.current_line));
+                return None;
+            }
+            self.next_token(); // move past '=' to the first value token
+            t
+        } else {
+            if self.peek_token != Token::Assign {
+                self.errors.push(format!("line {}: Expected '=' in let statement", self.current_line));
+                return None;
+            }
+            self.next_token(); // move to '='
+            self.next_token(); // move past '='
+            None
+        };
 
         let value = self.parse_expression()?;
 
@@ -443,7 +577,7 @@ impl<'a> Parser<'a> {
             name,
             is_mut,
             is_secret,
-            var_type: None,  // Type inference will be handled separately
+            var_type,
             value,
         })
     }
@@ -490,59 +624,71 @@ impl<'a> Parser<'a> {
                 return None;
             }
         }
+        if self.current_token == Token::RBrace {
+            self.next_token(); // consume closing '}'
+        }
         Some(Statement::StructDeclaration { name, is_component, fields })
     }
 
+    /// Skip a balanced `{ ... }` block, leaving current at the token after `}`.
+    fn skip_balanced_braces(&mut self) {
+        // PRE: current == LBrace
+        self.next_token(); // consume opening '{'
+        let mut depth = 1i32;
+        while depth > 0 && self.current_token != Token::Eof {
+            if self.current_token == Token::LBrace {
+                depth += 1;
+            } else if self.current_token == Token::RBrace {
+                depth -= 1;
+            }
+            self.next_token(); // always advance; when depth hits 0 this consumes the closing `}`
+        }
+        // POST: current is the token after the matching `}` (or Eof)
+    }
+
     fn parse_parallel_block(&mut self) -> Option<Statement> {
-        println!("[DEBUG] Entering parse_parallel_block, current_token = {:?}", self.current_token);
         self.next_token(); // consume 'parallel'
+        if self.current_token == Token::LBrace {
+            // Bare `parallel { }` without range — skip the whole block so the
+            // enclosing function-body loop stays correctly bounded.
+            self.skip_balanced_braces();
+            return None;
+        }
         if self.current_token != Token::LParen {
-            println!("[DEBUG] Failed at LParen check, got {:?}", self.current_token);
             return None;
         }
         self.next_token(); // consume '('
 
         let iterator = match &self.current_token {
             Token::Identifier(id) => id.clone(),
-            _ => {
-                println!("[DEBUG] Failed to match identifier, got {:?}", self.current_token);
-                return None;
-            }
+            _ => return None,
         };
         self.next_token(); // consume identifier
 
         if self.current_token != Token::In {
-            println!("[DEBUG] Failed at In check, got {:?}", self.current_token);
             return None;
         }
         self.next_token(); // consume 'in'
 
         let start = self.parse_expression()?;
-        println!("[DEBUG] parsed start = {:?}, current_token = {:?}", start, self.current_token);
         if self.current_token != Token::DoubleDot {
             self.next_token();
-            println!("[DEBUG] advanced in start, current_token = {:?}", self.current_token);
         }
         if self.current_token != Token::DoubleDot {
-            println!("[DEBUG] Failed at DoubleDot check, got {:?}", self.current_token);
             return None;
         }
         self.next_token(); // consume '..'
 
         let end = self.parse_expression()?;
-        println!("[DEBUG] parsed end = {:?}, current_token = {:?}", end, self.current_token);
         if self.current_token != Token::RParen {
             self.next_token();
-            println!("[DEBUG] advanced in end, current_token = {:?}", self.current_token);
         }
         if self.current_token != Token::RParen {
-            println!("[DEBUG] Failed at RParen check, got {:?}", self.current_token);
             return None;
         }
         self.next_token(); // consume ')'
 
         if self.current_token != Token::LBrace {
-            println!("[DEBUG] Failed at LBrace check, got {:?}", self.current_token);
             return None;
         }
         self.next_token(); // consume '{'
@@ -698,10 +844,52 @@ impl<'a> Parser<'a> {
         })
     }
 
+    fn parse_while_statement(&mut self) -> Option<Statement> {
+        self.next_token(); // consume 'while'
+        let has_paren = self.current_token == Token::LParen;
+        if has_paren {
+            self.next_token(); // consume '('
+        }
+        let saved_nsl = self.no_struct_literal;
+        self.no_struct_literal = true;
+        let condition = self.parse_expression()?;
+        self.no_struct_literal = saved_nsl;
+        if has_paren {
+            if self.current_token != Token::RParen {
+                self.next_token();
+            }
+            if self.current_token != Token::RParen {
+                return None;
+            }
+            self.next_token(); // consume ')'
+        } else {
+            self.next_token(); // move past last token of condition
+        }
+        if self.current_token != Token::LBrace {
+            return None;
+        }
+        self.next_token(); // consume '{'
+        let mut body = Vec::new();
+        while self.current_token != Token::RBrace && self.current_token != Token::Eof {
+            let prev_token = self.current_token.clone();
+            if let Some(stmt) = self.parse_statement() {
+                body.push(stmt);
+            }
+            self.advance_after_statement(&prev_token);
+        }
+        if self.current_token == Token::RBrace {
+            self.next_token();
+        }
+        Some(Statement::While { condition, body })
+    }
+
     fn parse_if_statement(&mut self) -> Option<Statement> {
         self.next_token(); // consume 'if'
-        
+
+        let saved_nsl = self.no_struct_literal;
+        self.no_struct_literal = true;
         let condition = self.parse_expression()?;
+        self.no_struct_literal = saved_nsl;
         self.next_token(); // move past expression
 
         if self.current_token != Token::LBrace {
@@ -721,10 +909,9 @@ impl<'a> Parser<'a> {
             self.next_token();
         }
         let mut alternative = None;
-        if self.peek_token == Token::Else {
-            self.next_token(); // move to 'else'
-            self.next_token(); // consume 'else'
-            
+        if self.current_token == Token::Else {
+            self.next_token(); // consume 'else' -> current = '{' or 'if'
+
             if self.current_token == Token::If {
                 if let Some(if_stmt) = self.parse_if_statement() {
                     alternative = Some(vec![if_stmt]);
@@ -781,7 +968,9 @@ impl<'a> Parser<'a> {
         // "[DEBUG PARSER] parse_function_declaration: after consuming '(': {:?}", self.current_token);
 
         let mut parameters = Vec::new();
+        let mut secret_params: Vec<String> = Vec::new();
         while self.current_token != Token::RParen && self.current_token != Token::Eof {
+            let param_is_secret = if self.current_token == Token::Secret { self.next_token(); true } else { false };
             let param_name = match &self.current_token {
                 Token::Identifier(id) => id.clone(),
                 _ => {
@@ -806,6 +995,7 @@ impl<'a> Parser<'a> {
                 }
             };
             // "[DEBUG PARSER] parse_function_declaration: parsed type: {:?}", param_type);
+            if param_is_secret { secret_params.push(param_name.clone()); }
             parameters.push((param_name, param_type));
 
             if self.current_token == Token::Comma {
@@ -822,9 +1012,8 @@ impl<'a> Parser<'a> {
             return_type = Some(self.parse_type()?);
         }
 
-        if self.current_token != Token::LBrace { 
-            println!("FAIL: Expected LBrace, got {:?}", self.current_token);
-            return None; 
+        if self.current_token != Token::LBrace {
+            return None;
         }
         self.next_token(); // consume '{'
 
@@ -843,6 +1032,7 @@ impl<'a> Parser<'a> {
             is_pub,
             name,
             parameters,
+            secret_params,
             return_type,
             body,
             attributes,
@@ -908,6 +1098,29 @@ impl<'a> Parser<'a> {
             false
         };
 
+        if self.current_token == Token::LBracket {
+            self.next_token(); // consume '['
+            let elem_type = self.parse_type()?;
+            if self.current_token != Token::Semicolon {
+                self.errors.push("Expected ';' in array type [T; N]".to_string());
+                return None;
+            }
+            self.next_token(); // consume ';'
+            let size_expr = self.parse_expression()?;
+            self.next_token(); // consume last token of size_expr -> ']'
+            if self.current_token != Token::RBracket {
+                self.errors.push("Expected ']' to close array type [T; N]".to_string());
+                return None;
+            }
+            self.next_token(); // consume ']'
+            let arr = crate::ast::Type::Array(Box::new(elem_type), Box::new(size_expr));
+            return if is_pointer {
+                Some(crate::ast::Type::Pointer(Box::new(arr)))
+            } else {
+                Some(arr)
+            };
+        }
+
         let base_type = match &self.current_token {
             Token::I8 => {
                 self.next_token();
@@ -944,12 +1157,15 @@ impl<'a> Parser<'a> {
                     self.next_token();
                     self.parsing_tensor_dims = true;
                     while self.current_token != Token::GreaterThan && self.current_token != Token::Eof {
+                        let prev_token = self.current_token.clone();
                         if let Some(dim) = self.parse_expression() {
                             dimensions.push(dim);
                         }
-                        self.next_token();
                         if self.current_token == Token::Comma {
-                            self.next_token();
+                            self.next_token(); // consume ','
+                        }
+                        if self.current_token == prev_token {
+                            self.next_token(); // force advance
                         }
                     }
                     self.parsing_tensor_dims = false;
@@ -975,6 +1191,10 @@ impl<'a> Parser<'a> {
                 } else {
                     return None;
                 }
+            }
+            Token::Identifier(name) if name == "str" => {
+                self.next_token();
+                crate::ast::Type::Struct("str".to_string())
             }
             Token::Identifier(name) => {
                 let n = name.clone();
@@ -1009,6 +1229,42 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_expression(&mut self) -> Option<Expression> {
+        self.expression_depth += 1;
+        if self.expression_depth > 128 {
+            self.errors.push("AST Depth Limit Exceeded".to_string());
+            self.expression_depth -= 1;
+            return None;
+        }
+
+        let expr = self.parse_expression_impl();
+        self.expression_depth -= 1;
+        expr
+    }
+
+    fn parse_expression_impl(&mut self) -> Option<Expression> {
+        self.parse_expression_bp(0)
+    }
+
+    /// Binding power for binary operators (higher = binds tighter).
+    /// Returns (left_bp, right_bp); left-assoc ops use rbp = lbp + 1.
+    fn infix_binding_power(tok: &Token) -> Option<(u8, u8)> {
+        Some(match tok {
+            Token::Assign => (5, 4), // right-associative
+            Token::Or => (6, 7),     // logical ||  (looser than &&)
+            Token::And => (8, 9),    // logical &&  (tighter than ||, looser than comparisons)
+            Token::Equal | Token::NotEqual
+            | Token::LessThan | Token::GreaterThan
+            | Token::LessEqual | Token::GreaterEqual => (10, 11),
+            Token::Pipe => (20, 21),
+            Token::BitwiseAnd => (25, 26),
+            Token::BitShiftLeft | Token::BitShiftRight => (30, 31),
+            Token::Plus | Token::Minus => (40, 41),
+            Token::Star | Token::Slash => (50, 51),
+            _ => return None,
+        })
+    }
+
+    fn parse_expression_bp(&mut self, min_bp: u8) -> Option<Expression> {
         let mut left = match self.current_token.clone() {
             Token::Comptime => {
                 self.next_token(); // consume 'comptime'
@@ -1033,16 +1289,23 @@ impl<'a> Parser<'a> {
                         loop {
                             if let Some(arg) = self.parse_expression() {
                                 arguments.push(arg);
+                            } else {
+                                self.next_token();
                             }
-                            // After parse_expression, current_token should be at the next token
-                            // If it's RParen or Comma, handle accordingly
+                            // Identifier expressions do not call next_token internally,
+                            // so current may still be on the identifier. Advance once if
+                            // we're not already at a separator to prevent infinite looping.
+                            if self.current_token != Token::RParen
+                               && self.current_token != Token::Comma
+                               && self.current_token != Token::Eof {
+                                self.next_token();
+                            }
                             if self.current_token == Token::RParen {
                                 break;
                             }
                             if self.current_token == Token::Comma {
                                 self.next_token(); // consume ',' and continue
-                            } else {
-                                // Unexpected token, break to avoid infinite loop
+                            } else if self.current_token == Token::Eof {
                                 break;
                             }
                         }
@@ -1054,7 +1317,7 @@ impl<'a> Parser<'a> {
                         name: id.clone(),
                         arguments,
                     }
-                } else if self.peek_token == Token::LBrace {
+                } else if self.peek_token == Token::LBrace && !self.no_struct_literal {
                     self.next_token(); // move to '{'
                     self.next_token(); // move past '{'
                     let mut fields = Vec::new();
@@ -1067,6 +1330,13 @@ impl<'a> Parser<'a> {
                                 if let Some(val) = self.parse_expression() {
                                     fields.push((n, val));
                                 }
+                                // value parse leaves cursor on the value's last token;
+                                // advance to the field separator so the loop progresses.
+                                if self.current_token != Token::Comma
+                                   && self.current_token != Token::RBrace
+                                   && self.current_token != Token::Eof {
+                                    self.next_token();
+                                }
                             }
                             if self.current_token == Token::Comma {
                                 self.next_token();
@@ -1074,6 +1344,9 @@ impl<'a> Parser<'a> {
                         } else {
                             break;
                         }
+                    }
+                    if self.current_token == Token::RBrace {
+                        self.next_token(); // consume closing '}'
                     }
                     Expression::StructInit {
                         name: id.clone(),
@@ -1085,13 +1358,15 @@ impl<'a> Parser<'a> {
                 }
             }
             Token::Number(n) => {
-                self.next_token(); // consume the number
+                // Leave the cursor ON the number (same convention as Identifier);
+                // the infix loop below advances via peek_token. Consuming here made
+                // the loop read the operand-after-operator as the operator, silently
+                // dropping the rest of the expression (e.g. `2 + 5` parsed as `2`).
                 Expression::Number(n)
             }
             Token::StringLiteral(s) => {
-                let expr = Expression::StringLiteral(s.clone());
-                self.next_token();
-                expr
+                // Leave cursor on the string literal (Identifier convention).
+                Expression::StringLiteral(s.clone())
             }
             Token::Tensor => {
                 if self.peek_token != Token::LBracket { return None; }
@@ -1101,11 +1376,15 @@ impl<'a> Parser<'a> {
                 let mut dimensions = Vec::new();
                 self.parsing_tensor_dims = true;
                 while self.current_token != Token::RBracket && self.current_token != Token::Eof {
+                    let prev_token = self.current_token.clone();
                     if let Some(dim) = self.parse_expression() {
                         dimensions.push(dim);
                     }
                     if self.current_token == Token::Comma {
                         self.next_token(); // consume ','
+                    }
+                    if self.current_token == prev_token {
+                        self.next_token(); // force advance
                     }
                 }
                 self.parsing_tensor_dims = false;
@@ -1114,13 +1393,44 @@ impl<'a> Parser<'a> {
                 }
                 Expression::TensorDefinition { dimensions }
             }
+            Token::Minus => {
+                self.next_token();
+                let operand = self.parse_expression_bp(60)?;
+                Expression::Prefix { operator: "Minus".to_string(), operand: Box::new(operand) }
+            }
+            Token::Bang => {
+                self.next_token();
+                let operand = self.parse_expression_bp(60)?;
+                Expression::Prefix { operator: "Not".to_string(), operand: Box::new(operand) }
+            }
             Token::LParen => {
                 self.next_token();
+                let saved_nsl = self.no_struct_literal;
+                self.no_struct_literal = false;
                 let expr = self.parse_expression()?;
+                self.no_struct_literal = saved_nsl;
                 if self.peek_token == Token::RParen {
                     self.next_token(); // move to ')'
                 }
                 expr
+            }
+            Token::LBracket => {
+                self.next_token(); // past '['
+                let mut elements = Vec::new();
+                while self.current_token != Token::RBracket && self.current_token != Token::Eof {
+                    if let Some(el) = self.parse_expression() {
+                        elements.push(el);
+                    }
+                    if self.current_token != Token::Comma
+                       && self.current_token != Token::RBracket
+                       && self.current_token != Token::Eof {
+                        self.next_token();
+                    }
+                    if self.current_token == Token::Comma {
+                        self.next_token();
+                    }
+                }
+                Expression::ArrayLiteral(elements)
             }
             Token::AtSign => {
                 if let Token::Identifier(ref id) = self.peek_token {
@@ -1147,17 +1457,12 @@ impl<'a> Parser<'a> {
             _ => return None,
         };
 
-        while match self.peek_token {
-            Token::Plus | Token::Minus | Token::Star | Token::Slash | Token::Assign | 
-            Token::LessThan | Token::Equal | Token::Question | Token::LessEqual |
-            Token::GreaterEqual | Token::AtSign |
-            Token::BitShiftLeft | Token::BitShiftRight | Token::BitwiseAnd | Token::Pipe | Token::Dot | Token::LBracket => true,
-            Token::GreaterThan => !self.parsing_tensor_dims,
-            _ => false,
-        } {
+        loop {
+            // Postfix operators bind tightest and always apply: ?, ., []
             if self.peek_token == Token::Question {
-                self.next_token(); // move to '?'
+                self.next_token();
                 left = Expression::Try(Box::new(left));
+                continue;
             } else if self.peek_token == Token::Dot {
                 self.next_token(); // move to '.'
                 self.next_token(); // move past '.'
@@ -1169,6 +1474,7 @@ impl<'a> Parser<'a> {
                 } else {
                     return None;
                 }
+                continue;
             } else if self.peek_token == Token::LBracket {
                 self.next_token(); // move to '['
                 self.next_token(); // move past '['
@@ -1183,17 +1489,34 @@ impl<'a> Parser<'a> {
                 } else {
                     return None;
                 }
-            } else {
-                let op = format!("{:?}", self.peek_token);
-                self.next_token(); // move to operator
-                self.next_token(); // move past operator
-                if let Some(right) = self.parse_expression() {
+                continue;
+            }
+
+            // `>` is the tensor-dimension terminator when parsing tensor dims.
+            if self.peek_token == Token::GreaterThan && self.parsing_tensor_dims {
+                break;
+            }
+
+            // Binary operators, precedence-climbing (correct precedence + associativity).
+            let (lbp, rbp) = match Parser::infix_binding_power(&self.peek_token) {
+                Some(bp) => bp,
+                None => break,
+            };
+            if lbp < min_bp {
+                break;
+            }
+            let op = format!("{:?}", self.peek_token);
+            self.next_token(); // move to operator
+            self.next_token(); // move past operator
+            match self.parse_expression_bp(rbp) {
+                Some(right) => {
                     left = Expression::Infix {
                         left: Box::new(left),
                         operator: op,
                         right: Box::new(right),
                     };
                 }
+                None => break,
             }
         }
 

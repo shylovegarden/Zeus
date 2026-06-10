@@ -1,0 +1,131 @@
+{
+  "version": "2.1.0",
+  "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
+  "runs": [
+    {
+      "tool": {
+        "driver": {
+          "name": "zeus",
+          "version": "0.1.0",
+          "informationUri": "https://zeus-lang.dev"
+        }
+      },
+      "results": [
+        {
+          "ruleId": "ZEUS-UNDECIDABLE",
+          "level": "note",
+          "message": {
+            "text": "fn counter: analysis UNDECIDABLE (loop / unknown opcode / unresolved aliasing)."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "showcase/llvm/counter.ll"
+                },
+                "region": {
+                  "startLine": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "ZEUS-SECRET-RETURN",
+          "level": "error",
+          "message": {
+            "text": "fn ct_mix: returns a secret-tainted value to a public caller"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "showcase/llvm/ct_mix.ll"
+                },
+                "region": {
+                  "startLine": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "ZEUS-SECRET-BRANCH",
+          "level": "error",
+          "message": {
+            "text": "fn insecure_cmp: secret value used as branch condition -> control-flow timing channel [UNMITIGATED]"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "showcase/llvm/insecure_cmp.ll"
+                },
+                "region": {
+                  "startLine": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "ZEUS-SECRET-BRANCH",
+          "level": "error",
+          "message": {
+            "text": "fn leaky: secret value used as branch condition -> control-flow timing channel [UNMITIGATED]"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "showcase/llvm/leaky.ll"
+                },
+                "region": {
+                  "startLine": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "ZEUS-SECRET-INDEX",
+          "level": "error",
+          "message": {
+            "text": "fn sbox_lookup: secret value used as memory index -> cache-timing channel [UNMITIGATED]"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "showcase/llvm/sbox.ll"
+                },
+                "region": {
+                  "startLine": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "ZEUS-SECRET-RETURN",
+          "level": "error",
+          "message": {
+            "text": "fn sbox_lookup: returns a secret-tainted value to a public caller"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "showcase/llvm/sbox.ll"
+                },
+                "region": {
+                  "startLine": 1
+                }
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

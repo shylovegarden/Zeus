@@ -1,0 +1,90 @@
+name: "Zeus Audit Gate"
+description: >-
+  Audit LLVM-IR (.ll) produced from AI-generated code and fail the build unless
+  every function is PROVED-SAFE on Zeus's modeled subset. Emits SARIF 2.1.0 for
+  GitHub code scanning. Unmodeled constructs are reported UNDECIDABLE, never
+  false-safe.
+author: "Zeus"
+branding:
+  icon: "shield"
+  color: "purple"
+
+inputs:
+  path:
+    description: >-
+      File, directory, or space-separated list of .ll files to audit. A
+      directory is searched recursively for *.ll files.
+    required: true
+  strict:
+    description: >-
+      When 'true', treat UNDECIDABLE verdicts as a gate failure (the build
+      fails on anything that is not provably safe). Default 'false' lets
+      UNDECIDABLE pass with caveats while still failing on NOT-PROVEN.
+    required: false
+    default: "false"
+  sarif-out:
+    description: >-
+      Path for the merged SARIF 2.1.0 report. Upload this with
+      github/codeql-action/upload-sarif to surface findings in the Security tab.
+    required: false
+    default: "zeus-audit.sarif"
+
+outputs:
+  sarif-file:
+    description: "Path to the merged SARIF report that was written."
+    value: ${{ steps.zeus.outputs.sarif-file }}
+  gate:
+    description: "Overall gate result: 'passed' or 'failed'."
+    value: ${{ steps.zeus.outputs.gate }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: "Run Zeus Audit Gate"
+      id: zeus
+      shell: bash
+      env:
+        ZEUS_INPUT_PATH: ${{ inputs.path }}
+        ZEUS_INPUT_STRICT: ${{ inputs.strict }}
+        ZEUS_INPUT_SARIF_OUT: ${{ inputs.sarif-out }}
+      run: |
+        set -u
+
+        # Locate the wrapper that ships next to this action.
+        WRAPPER="${GITHUB_ACTION_PATH}/zeus-audit.sh"
+        if [ ! -f "$WRAPPER" ]; then
+          echo "::error::zeus-audit.sh not found next to action.yml ($WRAPPER)"
+          exit 1
+        fi
+        chmod +x "$WRAPPER" || true
+
+        # The zeus binary must already be on PATH (see ci/README.md for install).
+        if ! command -v zeus >/dev/null 2>&1 && ! command -v zeus_compiler >/dev/null 2>&1; then
+          echo "::error::zeus binary not found on PATH. See ci/README.md for installation."
+          exit 1
+        fi
+
+        # Assemble flags.
+        STRICT_ARG=""
+        case "$ZEUS_INPUT_STRICT" in
+          true|TRUE|True|1|yes) STRICT_ARG="--strict" ;;
+        esac
+
+        echo "sarif-file=${ZEUS_INPUT_SARIF_OUT}" >> "$GITHUB_OUTPUT"
+
+        # Run the gate. The wrapper exits non-zero if any file fails -- we mirror
+        # that into the step result so the build fails on unproven code.
+        set +e
+        # shellcheck disable=SC2086
+        sh "$WRAPPER" $STRICT_ARG --sarif-out "$ZEUS_INPUT_SARIF_OUT" $ZEUS_INPUT_PATH
+        RC=$?
+        set -e
+
+        if [ "$RC" -eq 0 ]; then
+          echo "gate=passed" >> "$GITHUB_OUTPUT"
+          echo "::notice::Zeus Audit Gate PASSED -- all audited code is proven safe on the modeled subset."
+        else
+          echo "gate=failed" >> "$GITHUB_OUTPUT"
+          echo "::error::Zeus Audit Gate FAILED -- at least one file is NOT-PROVEN${STRICT_ARG:+ or UNDECIDABLE (strict)}. See the summary above and the SARIF report."
+        fi
+        exit $RC

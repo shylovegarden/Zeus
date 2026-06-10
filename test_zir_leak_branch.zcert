@@ -1,0 +1,9 @@
+{
+  "zeus_certificate":"v1",
+  "source":"test_zir_leak_branch.zs",
+  "source_sha256":"4a16111da60a6a2bbb92f722f391fea271ca325a4ab3f521ff9fd6e0bc1a4462",
+  "zero_heap":true,
+  "functions":[
+    {"name":"main","reproducible":true,"constant_time":false,"wcet_steps":13,"stack_bytes":72}
+  ]
+}

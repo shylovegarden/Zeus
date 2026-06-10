@@ -1,0 +1,8 @@
+{
+  "_type":"https://in-toto.io/Statement/v1",
+  "subject":[{"name":"math","digest":{"sha256":"01a621715ee972bf21f02eddb33d4d7c526866bceae9ff3ad3e8a1c33e6905a9"}}],
+  "predicateType":"https://slsa.dev/provenance/v1",
+  "predicate":{"buildDefinition":{"buildType":"https://zeus-lang.dev/buildtypes/compile/v1","externalParameters":{"source":"showcase/wasm/math.zs","sourceSha256":"bcf30625ca6ba845fe16259f67728e0149e21fd2e182ab2fa686cf535c42bcf4"},"internalParameters":{"compilerFlags":"-O2 -march=native","builderPlatform":"linux/x86_64"},"resolvedDependencies":[{"name":"showcase/wasm/math.zs","digest":{"sha256":"bcf30625ca6ba845fe16259f67728e0149e21fd2e182ab2fa686cf535c42bcf4"}}]},"runDetails":{"builder":{"id":"https://zeus-lang.dev/zeus_compiler@v0.1.0"},"metadata":{"invocationId":"6a289267-5","startedOn":"2026-06-09T22:23:35Z","finishedOn":"2026-06-09T22:23:35Z"}}},
+  "signature":"29e64055e006da2d7e89e5d00f9ec1ff5af3be5be26353595a561a2a91c3e24fd71463d6da9259b2399702be5174dbf96f14361dca843d8e5f65a402dc64e702",
+  "pubkey":"ae1bf588ff199892f342c74c2bc0ef470670dba54a5109204d718c5a3c7cc85e"
+}

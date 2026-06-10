@@ -1,0 +1,11 @@
+{
+  "zeus_certificate":"v1",
+  "source":"hello_world.zs",
+  "source_sha256":"6aa1c8f7e2e698497cf70521cfea8e0ed737a448ca586b46f3abe047b6c7867d",
+  "zero_heap":true,
+  "functions":[
+    {"name":"compute","reproducible":true,"constant_time":true,"wcet_steps":4,"stack_bytes":72},
+    {"name":"main","reproducible":true,"constant_time":true,"wcet_steps":6,"stack_bytes":72},
+    {"name":"<toplevel>","reproducible":true,"constant_time":true,"wcet_steps":null,"stack_bytes":0}
+  ]
+}

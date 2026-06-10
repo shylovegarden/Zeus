@@ -70,6 +70,7 @@ impl Formatter {
                 return_type,
                 body,
                 attributes: _,
+                secret_params: _,
             } => {
                 let pub_str = if *is_pub { "pub " } else { "" };
                 let params: Vec<String> = parameters
@@ -116,6 +117,16 @@ impl Formatter {
                     params.join(", "),
                     ret_str
                 )
+            }
+            Statement::While { condition, body } => {
+                let mut result = format!("{}while ({}) {{\n", self.indent(), self.format_expression(condition));
+                self.indent_level += 1;
+                for b_stmt in body {
+                    result.push_str(&self.format_statement(b_stmt));
+                }
+                self.indent_level -= 1;
+                result.push_str(&format!("{}}}\n", self.indent()));
+                result
             }
             Statement::For {
                 iterator,
@@ -335,8 +346,16 @@ impl Formatter {
             Expression::Comptime(inner) => {
                 format!("comptime {}", self.format_expression(inner))
             }
+            Expression::Prefix { operator, operand } => {
+                let op = match operator.as_str() { "Minus" => "-", "Not" => "!", _ => operator.as_str() };
+                format!("{}{}", op, self.format_expression(operand))
+            }
             Expression::NvmeDmaMap { path, size } => {
                 format!("@nvme_dma_map({}, {})", self.format_expression(path), self.format_expression(size))
+            }
+            Expression::ArrayLiteral(elements) => {
+                let parts: Vec<String> = elements.iter().map(|e| self.format_expression(e)).collect();
+                format!("[{}]", parts.join(", "))
             }
         }
     }

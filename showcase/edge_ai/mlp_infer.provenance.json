@@ -1,0 +1,8 @@
+{
+  "_type":"https://in-toto.io/Statement/v1",
+  "subject":[{"name":"mlp_infer","digest":{"sha256":"211cef305694c3015b87387fbe7c50942b99d6f955d6f77d896ec4fab09771f0"}}],
+  "predicateType":"https://slsa.dev/provenance/v1",
+  "predicate":{"buildDefinition":{"buildType":"https://zeus-lang.dev/buildtypes/compile/v1","externalParameters":{"source":"showcase/edge_ai/mlp_infer.zs","sourceSha256":"07ac33559b8ce7e1fe2ced45057fb3c08390bf469d282089c9905372fd504eae"},"internalParameters":{"compilerFlags":"-O2 -march=native","builderPlatform":"linux/x86_64"},"resolvedDependencies":[{"name":"showcase/edge_ai/mlp_infer.zs","digest":{"sha256":"07ac33559b8ce7e1fe2ced45057fb3c08390bf469d282089c9905372fd504eae"}}]},"runDetails":{"builder":{"id":"https://zeus-lang.dev/zeus_compiler@v0.1.0"},"metadata":{"invocationId":"6a289122-14","startedOn":"2026-06-09T22:18:10Z","finishedOn":"2026-06-09T22:18:10Z"}}},
+  "signature":"38f6866365de50d22a88c1dc8a074135c1924df5f9348d3805b0162bf42c3a483e6e8fc4206de9ad13827269e82f32e98d1eac9245bb72bddd988e4544f49906",
+  "pubkey":"ae1bf588ff199892f342c74c2bc0ef470670dba54a5109204d718c5a3c7cc85e"
+}

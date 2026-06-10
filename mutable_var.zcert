@@ -1,0 +1,9 @@
+{
+  "zeus_certificate":"v1",
+  "source":"./tests/cases/mutable_var.zs",
+  "source_sha256":"e4fc330a541072c293286e2ef64dccd92141ad90ea8ccebcd1d8a646852dd582",
+  "zero_heap":true,
+  "functions":[
+    {"name":"main","reproducible":true,"constant_time":true,"wcet_steps":20,"stack_bytes":72}
+  ]
+}

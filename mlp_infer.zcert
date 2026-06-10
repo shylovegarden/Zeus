@@ -1,0 +1,15 @@
+{
+  "zeus_certificate":"v1",
+  "source":"showcase/edge_ai/mlp_infer.zs",
+  "source_sha256":"07ac33559b8ce7e1fe2ced45057fb3c08390bf469d282089c9905372fd504eae",
+  "zero_heap":true,
+  "ffi_unaudited":false,
+  "functions":[
+    {"name":"relu","reproducible":true,"constant_time":true,"wcet_steps":8,"stack_bytes":72,"ffi_unaudited":false},
+    {"name":"neuron","reproducible":true,"constant_time":true,"wcet_steps":129,"stack_bytes":208,"ffi_unaudited":false},
+    {"name":"infer","reproducible":true,"constant_time":true,"wcet_steps":441,"stack_bytes":128,"ffi_unaudited":false},
+    {"name":"main","reproducible":true,"constant_time":true,"wcet_steps":451,"stack_bytes":64,"ffi_unaudited":false}
+  ],
+  "signature":"7e8b93d72c6ad3117f997b3a2dafb62e7bc7b2615558231964d9c57253e1f0f6016fb52219dba2488a37fe9f8066fe82c6afaa18308ff316faa3f50ea9eed806",
+  "pubkey":"ae1bf588ff199892f342c74c2bc0ef470670dba54a5109204d718c5a3c7cc85e"
+}

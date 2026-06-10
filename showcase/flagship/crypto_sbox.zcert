@@ -1,0 +1,10 @@
+{
+  "zeus_certificate":"v1",
+  "source":"crypto_sbox.zs",
+  "source_sha256":"3443eea066375c3926c14ed82cd54e7a61ffab437ceefdd62fa4eb6e5cc71944",
+  "zero_heap":true,
+  "functions":[
+    {"name":"sbox_mix","reproducible":true,"constant_time":true,"wcet_steps":13,"stack_bytes":2128},
+    {"name":"main","reproducible":true,"constant_time":true,"wcet_steps":20,"stack_bytes":64}
+  ]
+}

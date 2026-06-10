@@ -1,0 +1,9 @@
+{
+  "zeus_certificate":"v1",
+  "source":"./benchmarks/enclave_test.zs",
+  "source_sha256":"c7a4571065a84216b67e56edb3de910f6a6620aa38fc7e3ecd88b5bf5a8e0577",
+  "zero_heap":true,
+  "functions":[
+    {"name":"main","reproducible":true,"constant_time":true,"wcet_steps":17,"stack_bytes":80}
+  ]
+}

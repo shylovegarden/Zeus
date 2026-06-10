@@ -1,0 +1,10 @@
+{
+  "zeus_certificate":"v1",
+  "source":"./showcase/flagship/token_contract.zs",
+  "source_sha256":"3dc55d6543716f0e9d054f5552466784dc944fec45161d1810a3702147bc9684",
+  "zero_heap":true,
+  "functions":[
+    {"name":"supply","reproducible":true,"constant_time":true,"wcet_steps":69,"stack_bytes":80},
+    {"name":"main","reproducible":true,"constant_time":true,"wcet_steps":86,"stack_bytes":128}
+  ]
+}

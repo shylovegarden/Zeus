@@ -1,0 +1,12 @@
+{
+  "zeus_certificate":"v1",
+  "source":"cases/paren_grouping.zs",
+  "source_sha256":"b9475225c91e2f60f76c5ddc7581a31e5c4b90313b282cc231173823359e11de",
+  "zero_heap":true,
+  "ffi_unaudited":false,
+  "functions":[
+    {"name":"main","reproducible":true,"constant_time":true,"wcet_steps":20,"stack_bytes":88,"ffi_unaudited":false}
+  ],
+  "signature":"36fc5d417470e34314d9251bd108ec9ded30f90d7ee85c5080b0c84099cd495eeff95be74a6816f5041900baa709a2eb447454537ba163695a4b0bc534a6870e",
+  "pubkey":"892dd1af9bed09dddfbff4df217d6875b71e96419d6151dc8e71407104c5cb8f"
+}

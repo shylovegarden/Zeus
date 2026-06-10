@@ -1,0 +1,10 @@
+{
+  "zeus_certificate":"v1",
+  "source":"test_contract.zs",
+  "source_sha256":"0f7fe3f7fe6b87a52f5e2cf3dbd5d719e6ec3c906a95812b73931b2b0501fee1",
+  "zero_heap":true,
+  "functions":[
+    {"name":"add_pos","reproducible":true,"constant_time":true,"wcet_steps":4,"stack_bytes":80},
+    {"name":"main","reproducible":true,"constant_time":true,"wcet_steps":12,"stack_bytes":64}
+  ]
+}

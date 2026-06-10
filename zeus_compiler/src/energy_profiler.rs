@@ -75,6 +75,15 @@ impl EnergyProfiler {
                 
                 total_loop_cost
             }
+            Statement::While { condition: _, body } => {
+                let mut body_cost = 0.0;
+                for s in body {
+                    body_cost += Self::analyze_statement(s, warnings);
+                }
+                let total_loop_cost = 1000.0 * (body_cost + 0.5);
+                warnings.push(format!("[WARNING] `while` loop detected with unbounded O(N) energy footprint (Estimated: {:.2} mJ per invocation).", total_loop_cost));
+                total_loop_cost
+            }
             Statement::ParallelBlock { statements, .. } => {
                 let mut cost = 0.0;
                 for s in statements {

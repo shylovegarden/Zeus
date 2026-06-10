@@ -1,0 +1,11 @@
+{
+  "zeus_certificate":"v1",
+  "source":"error_test.zs",
+  "source_sha256":"5831bf9d62e67d907d21ad0c72e7c7ee4144f95f9699eaa10f50d07e03b8442c",
+  "zero_heap":true,
+  "functions":[
+    {"name":"read_sensor","reproducible":true,"constant_time":true,"wcet_steps":1,"stack_bytes":64},
+    {"name":"process_data","reproducible":true,"constant_time":true,"wcet_steps":4,"stack_bytes":72},
+    {"name":"main","reproducible":true,"constant_time":true,"wcet_steps":5,"stack_bytes":64}
+  ]
+}

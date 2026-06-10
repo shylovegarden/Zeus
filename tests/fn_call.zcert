@@ -1,0 +1,13 @@
+{
+  "zeus_certificate":"v1",
+  "source":"cases/fn_call.zs",
+  "source_sha256":"fc7401b4073cd48377379916e3e7afc75a2d1f3667f896354fa50d73d62e7466",
+  "zero_heap":true,
+  "ffi_unaudited":false,
+  "functions":[
+    {"name":"square","reproducible":true,"constant_time":true,"wcet_steps":4,"stack_bytes":72,"ffi_unaudited":false},
+    {"name":"main","reproducible":true,"constant_time":true,"wcet_steps":12,"stack_bytes":80,"ffi_unaudited":false}
+  ],
+  "signature":"3368fb9c4c46b336fa36a3a3d47123fc3798d9a5b36a1bd4dc22c958c29ec754a2701911f40ad6ccb6857599b47d59531efa6ac291503dbc683fcfb4d1c8f605",
+  "pubkey":"892dd1af9bed09dddfbff4df217d6875b71e96419d6151dc8e71407104c5cb8f"
+}

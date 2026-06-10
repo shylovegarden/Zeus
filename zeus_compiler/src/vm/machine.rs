@@ -13,7 +13,7 @@ impl Machine {
         }
     }
 
-    pub fn run(&mut self, bytecode: &[u8], constants: &[f64]) {
+    pub fn run(&mut self, bytecode: &[u8], constants: &[f64]) -> Result<(), String> {
         let mut ip = 0; // instruction pointer
 
         while ip < bytecode.len() {
@@ -62,9 +62,10 @@ impl Machine {
                     self.stack.push(*val);
                 }
                 Opcode::OpReturn => {
-                    return;
+                    return Ok(());
                 }
             }
         }
+        Ok(())
     }
 }
