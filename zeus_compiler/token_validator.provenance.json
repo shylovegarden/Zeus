@@ -1,0 +1,8 @@
+{
+  "_type":"https://in-toto.io/Statement/v1",
+  "subject":[{"name":"token_validator","digest":{"sha256":"37ab5b25843ef11b679d56ddd27d3815b4b9e36c0d2c922bd6151834e40ce821"}}],
+  "predicateType":"https://slsa.dev/provenance/v1",
+  "predicate":{"buildDefinition":{"buildType":"https://zeus-lang.dev/buildtypes/compile/v1","externalParameters":{"source":"/Users/shy/Developer/ZEUS/token_validator.zs","sourceSha256":"a66940c2c704a9b94936c9512d707d8d51cf9dfefda3a36177e6d0c76c9741c6"},"internalParameters":{"compilerFlags":"-O2 -march=native","builderPlatform":"macos/aarch64"},"resolvedDependencies":[{"name":"/Users/shy/Developer/ZEUS/token_validator.zs","digest":{"sha256":"a66940c2c704a9b94936c9512d707d8d51cf9dfefda3a36177e6d0c76c9741c6"}}]},"runDetails":{"builder":{"id":"https://zeus-lang.dev/zeus_compiler@v0.1.0"},"metadata":{"invocationId":"6a2ac77d-49186","startedOn":"2026-06-11T14:34:37Z","finishedOn":"2026-06-11T14:34:37Z"}}},
+  "signature":"f152e3a24cd0b514a32823bfc2077a302391c3719af2caf5a83c0c7cf7d90bffa0e518ed0c9bd5cb41f1bb3a599d8e05104f98c102b512c3ac2208746cb72203",
+  "pubkey":"0fb2d04ef344666b16a24c2f3c21daea89d8af5c919d7abfe71ee72c5c8125ff"
+}

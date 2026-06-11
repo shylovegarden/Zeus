@@ -6,7 +6,7 @@ use axum::{
     Router,
     extract::{State, Json, Path, Multipart},
     http::StatusCode,
-    response::IntoResponse,
+    response::{IntoResponse, Response},
 };
 use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
@@ -156,7 +156,14 @@ async fn compile_handler(
     }
     
     // Queue compilation job
-    match state.queue.submit(job_id.clone(), req).await {
+    let compile_req = compile::CompileRequest {
+        source: req.source,
+        target: req.target,
+        policy: req.policy,
+        verify: req.verify,
+        generate_cert: req.generate_cert,
+    };
+    match state.queue.submit(job_id.clone(), compile_req).await {
         Ok(_) => {
             (StatusCode::ACCEPTED, Json(CompileResponse {
                 job_id,
@@ -223,27 +230,27 @@ async fn verify_handler(
 
 /// Get job status
 async fn get_job_status(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
     Path(id): Path<String>,
-) -> impl IntoResponse {
-    match state.queue.status(&id).await {
-        Ok(status) => Json(status),
-        Err(_) => Json(serde_json::json!({
+) -> Response {
+    match _state.queue.status(&id).await {
+        Ok(status) => (StatusCode::OK, Json(status)).into_response(),
+        Err(_) => (StatusCode::NOT_FOUND, Json(serde_json::json!({
             "error": "Job not found"
-        })),
+        }))).into_response(),
     }
 }
 
 /// Get certificate
 async fn get_certificate(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
     Path(hash): Path<String>,
-) -> impl IntoResponse {
-    match state.db.get_certificate(&hash).await {
-        Ok(cert) => Json(cert),
-        Err(_) => Json(serde_json::json!({
+) -> Response {
+    match _state.db.get_certificate(&hash).await {
+        Ok(cert) => (StatusCode::OK, Json(cert)).into_response(),
+        Err(_) => (StatusCode::NOT_FOUND, Json(serde_json::json!({
             "error": "Certificate not found"
-        })),
+        }))).into_response(),
     }
 }
 

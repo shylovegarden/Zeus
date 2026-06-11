@@ -1,0 +1,8 @@
+{
+  "_type":"https://in-toto.io/Statement/v1",
+  "subject":[{"name":"crypto_lookup","digest":{"sha256":"280a17fa62c79aabe7f24b6f18a7091d598a3a1fdd761ed18d86406c2f9f82f0"}}],
+  "predicateType":"https://slsa.dev/provenance/v1",
+  "predicate":{"buildDefinition":{"buildType":"https://zeus-lang.dev/buildtypes/compile/v1","externalParameters":{"source":"/Users/shy/Developer/ZEUS/crypto_lookup.zs","sourceSha256":"d01e46de49c2ab6f21c6cd401a54c1e4239796d9a242c020a6b9edc846de4a6f"},"internalParameters":{"compilerFlags":"-O2 -march=native","builderPlatform":"macos/aarch64"},"resolvedDependencies":[{"name":"/Users/shy/Developer/ZEUS/crypto_lookup.zs","digest":{"sha256":"d01e46de49c2ab6f21c6cd401a54c1e4239796d9a242c020a6b9edc846de4a6f"}}]},"runDetails":{"builder":{"id":"https://zeus-lang.dev/zeus_compiler@v0.1.0"},"metadata":{"invocationId":"6a2ac77c-49038","startedOn":"2026-06-11T14:34:36Z","finishedOn":"2026-06-11T14:34:36Z"}}},
+  "signature":"99c0d3054341bc8ee598a012061b7c593496121b108b5de88f5097ccb3363729e28de8e07c8658ed14b33c0bbfc622d2cd8f0377898f19dabb3e657505c1610a",
+  "pubkey":"0fb2d04ef344666b16a24c2f3c21daea89d8af5c919d7abfe71ee72c5c8125ff"
+}

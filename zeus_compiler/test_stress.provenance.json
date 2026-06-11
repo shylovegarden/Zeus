@@ -1,0 +1,8 @@
+{
+  "_type":"https://in-toto.io/Statement/v1",
+  "subject":[{"name":"test_stress","digest":{"sha256":"70284d0e3588390539b2c0b77c41a66923c299f3d612c0409d511867700c79f9"}}],
+  "predicateType":"https://slsa.dev/provenance/v1",
+  "predicate":{"buildDefinition":{"buildType":"https://zeus-lang.dev/buildtypes/compile/v1","externalParameters":{"source":"/Users/shy/Developer/ZEUS/test_stress.zs","sourceSha256":"6325bc2d5492f509aeb1216321f6d63d5fb53f9dc6cf99387211a9c1b5b1b50f"},"internalParameters":{"compilerFlags":"-O2 -march=native","builderPlatform":"macos/aarch64"},"resolvedDependencies":[{"name":"/Users/shy/Developer/ZEUS/test_stress.zs","digest":{"sha256":"6325bc2d5492f509aeb1216321f6d63d5fb53f9dc6cf99387211a9c1b5b1b50f"}}]},"runDetails":{"builder":{"id":"https://zeus-lang.dev/zeus_compiler@v0.1.0"},"metadata":{"invocationId":"6a2ac77e-49703","startedOn":"2026-06-11T14:34:38Z","finishedOn":"2026-06-11T14:34:38Z"}}},
+  "signature":"f55bb4e3c02f8fe9fa81ad04bde05b68d524c4617f7bca7c6609497ec3d7b89cf93210ccfb2337cdd362d1524b80af54b41aa566d119da244f0735932a0c960a",
+  "pubkey":"0fb2d04ef344666b16a24c2f3c21daea89d8af5c919d7abfe71ee72c5c8125ff"
+}

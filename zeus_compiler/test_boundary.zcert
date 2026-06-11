@@ -1,0 +1,13 @@
+{
+  "zeus_certificate":"v1",
+  "source":"/Users/shy/Developer/ZEUS/test_boundary.zs",
+  "source_sha256":"d72d1ce4fc70d1382f6dba059f6f85626f1423a19dd86e0d6c8e71e98914ae80",
+  "binary_sha256":"e3779c634a1abe4edeae6b3781b25766d54bb503f9cf635261ea999b70b1d1ac",
+  "zero_heap":true,
+  "ffi_unaudited":false,
+  "functions":[
+    {"name":"main","reproducible":true,"constant_time":true,"wcet_steps":43,"stack_bytes":208,"ffi_unaudited":false}
+  ],
+  "signature":"a9a083df02be730a96fc9be7b5b25c1af415112f7026041156751db212078d4731f3afcc7ad628672ee990cc78d54a2bee44e0e241aeb0ea659b1b66fe1e6200",
+  "pubkey":"0fb2d04ef344666b16a24c2f3c21daea89d8af5c919d7abfe71ee72c5c8125ff"
+}

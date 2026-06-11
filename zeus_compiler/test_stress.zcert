@@ -1,0 +1,13 @@
+{
+  "zeus_certificate":"v1",
+  "source":"/Users/shy/Developer/ZEUS/test_stress.zs",
+  "source_sha256":"6325bc2d5492f509aeb1216321f6d63d5fb53f9dc6cf99387211a9c1b5b1b50f",
+  "binary_sha256":"70284d0e3588390539b2c0b77c41a66923c299f3d612c0409d511867700c79f9",
+  "zero_heap":true,
+  "ffi_unaudited":false,
+  "functions":[
+    {"name":"main","reproducible":true,"constant_time":true,"wcet_steps":156,"stack_bytes":200,"ffi_unaudited":false}
+  ],
+  "signature":"e5879763dc84d39fe410e27cd313eed9d833ef1be0b5ff9f426a63789014c02a83fbf89baf32a3719e34b72884aed55e6ef950acda6385982d1c9bb36093f40f",
+  "pubkey":"0fb2d04ef344666b16a24c2f3c21daea89d8af5c919d7abfe71ee72c5c8125ff"
+}

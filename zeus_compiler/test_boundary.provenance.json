@@ -1,0 +1,8 @@
+{
+  "_type":"https://in-toto.io/Statement/v1",
+  "subject":[{"name":"test_boundary","digest":{"sha256":"e3779c634a1abe4edeae6b3781b25766d54bb503f9cf635261ea999b70b1d1ac"}}],
+  "predicateType":"https://slsa.dev/provenance/v1",
+  "predicate":{"buildDefinition":{"buildType":"https://zeus-lang.dev/buildtypes/compile/v1","externalParameters":{"source":"/Users/shy/Developer/ZEUS/test_boundary.zs","sourceSha256":"d72d1ce4fc70d1382f6dba059f6f85626f1423a19dd86e0d6c8e71e98914ae80"},"internalParameters":{"compilerFlags":"-O2 -march=native","builderPlatform":"macos/aarch64"},"resolvedDependencies":[{"name":"/Users/shy/Developer/ZEUS/test_boundary.zs","digest":{"sha256":"d72d1ce4fc70d1382f6dba059f6f85626f1423a19dd86e0d6c8e71e98914ae80"}}]},"runDetails":{"builder":{"id":"https://zeus-lang.dev/zeus_compiler@v0.1.0"},"metadata":{"invocationId":"6a2ac77d-49367","startedOn":"2026-06-11T14:34:37Z","finishedOn":"2026-06-11T14:34:37Z"}}},
+  "signature":"d612e2d934167d2e6a647bf64a84e351576ace45c4463c27087f65140d7f45e686152d925cc7d9e22a599f16aac733d74fb5743581dc40ebb85903cc7827830d",
+  "pubkey":"0fb2d04ef344666b16a24c2f3c21daea89d8af5c919d7abfe71ee72c5c8125ff"
+}

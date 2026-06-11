@@ -7,7 +7,7 @@ use anyhow::{Result, Context};
 use serde::{Serialize, Deserialize};
 use sha2::{Sha256, Digest};
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CompileRequest {
     pub source: String,
     pub target: String,
@@ -16,7 +16,7 @@ pub struct CompileRequest {
     pub generate_cert: bool,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CompilationResult {
     pub success: bool,
     pub binary: Option<Vec<u8>>,
@@ -27,7 +27,7 @@ pub struct CompilationResult {
     pub errors: Vec<String>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VerificationReport {
     pub verified: bool,
     pub properties: Vec<String>,
@@ -143,7 +143,7 @@ fn generate_job_id(source: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(source.as_bytes());
     let result = hasher.finalize();
-    format!("{:x}", &result[..8])
+    hex::encode(&result[..8])
 }
 
 /// Parse verification report from Zeus output
