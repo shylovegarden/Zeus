@@ -343,6 +343,43 @@ impl<'ctx> LLVMBackend<'ctx> {
             Type::F32 => Ok(self.context.f32_type().into()),
             Type::F64 => Ok(self.context.f64_type().into()),
             Type::Bool => Ok(self.context.bool_type().into()),
+            Type::Array(elem_type, _size) => {
+                // Arrays are pointers to the element type in LLVM
+                let elem_llvm = self.type_to_llvm(elem_type)?;
+                Ok(elem_llvm.ptr_type(inkwell::AddressSpace::default()).into())
+            }
+            Type::Struct(name) => {
+                // Struct types need to be defined in the module
+                // For now, treat as opaque pointer
+                Ok(self.context.i8_type().ptr_type(inkwell::AddressSpace::default()).into())
+            }
+            Type::Pointer(inner) => {
+                let inner_llvm = self.type_to_llvm(inner)?;
+                Ok(inner_llvm.ptr_type(inkwell::AddressSpace::default()).into())
+            }
+            Type::Unknown(name) => {
+                // Try to resolve known aliases
+                match name.as_str() {
+                    "i8" | "int8" => Ok(self.context.i8_type().into()),
+                    "i16" | "int16" => Ok(self.context.i16_type().into()),
+                    "i32" | "int" => Ok(self.context.i32_type().into()),
+                    "i64" | "int64" | "isize" => Ok(self.context.i64_type().into()),
+                    "u8" | "uint8" => Ok(self.context.i8_type().into()),
+                    "u16" | "uint16" => Ok(self.context.i16_type().into()),
+                    "u32" | "uint" => Ok(self.context.i32_type().into()),
+                    "u64" | "uint64" | "usize" => Ok(self.context.i64_type().into()),
+                    "f32" | "float" => Ok(self.context.f32_type().into()),
+                    "f64" | "double" => Ok(self.context.f64_type().into()),
+                    "bool" => Ok(self.context.bool_type().into()),
+                    "void" => Ok(self.context.void_type().into()),
+                    _ => Err(CompileError::EmissionError(format!("Unknown type: {}", name))),
+                }
+            }
+            Type::Result(ok, _err) => {
+                // Result is represented as the ok type with a success flag
+                // Simplified: just use the ok type for now
+                self.type_to_llvm(ok)
+            }
             _ => Err(CompileError::EmissionError(format!("Unsupported type: {:?}", ty))),
         }
     }
