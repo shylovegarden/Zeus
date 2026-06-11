@@ -1,0 +1,64 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Zeus",
+  "patterns": [
+    { "include": "#keywords" },
+    { "include": "#strings" },
+    { "include": "#comments" },
+    { "include": "#numbers" },
+    { "include": "#types" },
+    { "include": "#attributes" },
+    { "include": "#functions" }
+  ],
+  "repository": {
+    "keywords": {
+      "patterns": [{
+        "name": "keyword.control.zeus",
+        "match": "\\b(if|else|while|for|return|pub|fn|let|mut|struct|const|import)\\b"
+      }, {
+        "name": "keyword.other.zeus",
+        "match": "\\b(secret|proof|parallel|test)\\b"
+      }]
+    },
+    "strings": {
+      "name": "string.quoted.double.zeus",
+      "begin": "\"",
+      "end": "\"",
+      "patterns": [{
+        "name": "constant.character.escape.zeus",
+        "match": "\\\\."
+      }]
+    },
+    "comments": {
+      "patterns": [{
+        "name": "comment.line.double-slash.zeus",
+        "match": "//.*$"
+      }]
+    },
+    "numbers": {
+      "patterns": [{
+        "name": "constant.numeric.zeus",
+        "match": "\\b\\d+(\\.\\d+)?\\b"
+      }]
+    },
+    "types": {
+      "patterns": [{
+        "name": "storage.type.zeus",
+        "match": "\\b(i32|i64|u32|u64|f32|f64|bool|str)\\b"
+      }]
+    },
+    "attributes": {
+      "patterns": [{
+        "name": "meta.attribute.zeus",
+        "match": "@[a-zA-Z_]+"
+      }]
+    },
+    "functions": {
+      "patterns": [{
+        "name": "entity.name.function.zeus",
+        "match": "\\bfn\\s+([a-zA-Z_][a-zA-Z0-9_]*)"
+      }]
+    }
+  },
+  "scopeName": "source.zeus"
+}

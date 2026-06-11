@@ -30,6 +30,7 @@ mod live_zk;
 mod silicon_aware;
 mod enclave;
 mod swarm;
+mod policy;
 
 use ast::Statement;
 use lexer::Lexer;
@@ -95,6 +96,7 @@ fn main() {
             let mut export_mutation_log = false;
             let mut tune = false;
             let mut arch_blueprint = None;
+            let mut policy_file = None;
             for arg in &args[2..] {
                 if arg == "--mlir" { mlir = true; }
                 else if arg == "--tune" { tune = true; }
@@ -111,10 +113,39 @@ fn main() {
                 }
                 else if arg == "--disable-adaptive" { disable_adaptive = true; }
                 else if arg == "--export-mutation-log" { export_mutation_log = true; }
+                else if arg.starts_with("--policy=") {
+                    policy_file = Some(arg.trim_start_matches("--policy=").to_string());
+                }
                 else if arg == "--json" { /* handled globally via json_mode() */ }
                 else if arg == "--zir" { /* handled via zir_verbose() */ }
                 else { target = arg; }
             }
+            
+            // Load and enforce policy if specified
+            if let Some(ref policy_path) = policy_file {
+                match policy::PolicyEngine::from_file(policy_path) {
+                    Ok(engine) => {
+                        println!("\x1b[1;36m[POLICY]\x1b[0m Enforcing policy: {}", policy_path);
+                        let src = read_source_or_exit(target);
+                        let lx = Lexer::new(&src);
+                        let mut parser = Parser::new(lx);
+                        let program = parser.parse_program();
+                        if let Err(violations) = engine.enforce(&program) {
+                            eprintln!("\x1b[1;31m[POLICY VIOLATIONS]\x1b[0m");
+                            for v in violations {
+                                eprintln!("  - {}: {}", v.location, v.message);
+                            }
+                            std::process::exit(1);
+                        }
+                        println!("\x1b[1;32m[POLICY]\x1b[0m All policy requirements satisfied");
+                    }
+                    Err(e) => {
+                        eprintln!("\x1b[31m[ZEUS ERROR]\x1b[0m Failed to load policy: {}", e);
+                        std::process::exit(1);
+                    }
+                }
+            }
+            
             build_project(target, false, mlir, cross_target, disable_adaptive, export_mutation_log, arch_blueprint, tune);
         }
         "run" => {
