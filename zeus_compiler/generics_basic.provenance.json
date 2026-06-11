@@ -1,0 +1,8 @@
+{
+  "_type":"https://in-toto.io/Statement/v1",
+  "subject":[{"name":"generics_basic.c","digest":{"sha256":"d9872dbc48fe16e1824378435360de8efe35fb52bcb7546bba536f3c350f3ba8"}}],
+  "predicateType":"https://slsa.dev/provenance/v1",
+  "predicate":{"buildDefinition":{"buildType":"https://zeus-lang.dev/buildtypes/compile/v1","externalParameters":{"source":"C:\\Zeus\\Zeus\\tests\\cases\\generics_basic.zs","sourceSha256":"f3c7a1c8fb5df6623e60347beb5ff910a87c53a1d20f0959556554e5105b3134"},"internalParameters":{"compilerFlags":"-O2 -march=native","builderPlatform":"windows/x86_64"},"resolvedDependencies":[{"name":"C:\\Zeus\\Zeus\\tests\\cases\\generics_basic.zs","digest":{"sha256":"f3c7a1c8fb5df6623e60347beb5ff910a87c53a1d20f0959556554e5105b3134"}}]},"runDetails":{"builder":{"id":"https://zeus-lang.dev/zeus_compiler@v0.1.0"},"metadata":{"invocationId":"6a29e440-6944","startedOn":"2026-06-10T22:25:04Z","finishedOn":"2026-06-10T22:25:04Z"}}},
+  "signature":"ac152b3c5f4f40cf85f57b44cacb0e8ea9131c73af3bd19bcc3fd1d3ec8bac1b2d9c5cb79a86435c3240bad7d01bdcf830367bb320b4f9cbd657316362ad160c",
+  "pubkey":"faefc9f8bbf0c01668e61d05d6f6dd2a66c478940feb03b4fc82675b4de8d5a3"
+}

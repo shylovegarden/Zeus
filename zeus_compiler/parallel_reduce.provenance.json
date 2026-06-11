@@ -1,0 +1,8 @@
+{
+  "_type":"https://in-toto.io/Statement/v1",
+  "subject":[{"name":"parallel_reduce.c","digest":{"sha256":"31d9f4af9bbe68189b800028297211d99d970081f9819fab6dc19e26560ea5d4"}}],
+  "predicateType":"https://slsa.dev/provenance/v1",
+  "predicate":{"buildDefinition":{"buildType":"https://zeus-lang.dev/buildtypes/compile/v1","externalParameters":{"source":"C:\\Zeus\\Zeus\\tests\\cases\\parallel_reduce.zs","sourceSha256":"72ac2f9e903aa4636200e6c8d1065e5aff8d7c452ec21b146d790de5bc44227f"},"internalParameters":{"compilerFlags":"-O2 -march=native","builderPlatform":"windows/x86_64"},"resolvedDependencies":[{"name":"C:\\Zeus\\Zeus\\tests\\cases\\parallel_reduce.zs","digest":{"sha256":"72ac2f9e903aa4636200e6c8d1065e5aff8d7c452ec21b146d790de5bc44227f"}}]},"runDetails":{"builder":{"id":"https://zeus-lang.dev/zeus_compiler@v0.1.0"},"metadata":{"invocationId":"6a29e440-24060","startedOn":"2026-06-10T22:25:04Z","finishedOn":"2026-06-10T22:25:04Z"}}},
+  "signature":"2a077f715e1a9a678f08122fe6341abf7c8372efd7a29565d0abcf4f73a9cf550ec6e64fc0df68c05fdbff9934b5322563e275d702451d8325aca42d9a16bd05",
+  "pubkey":"faefc9f8bbf0c01668e61d05d6f6dd2a66c478940feb03b4fc82675b4de8d5a3"
+}

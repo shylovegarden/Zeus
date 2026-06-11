@@ -1,0 +1,17 @@
+{
+  "zeus_certificate":"v1",
+  "source":"C:\Zeus\Zeus\tests\cases\generics_basic.zs",
+  "source_sha256":"f3c7a1c8fb5df6623e60347beb5ff910a87c53a1d20f0959556554e5105b3134",
+  "binary_sha256":"none",
+  "zero_heap":true,
+  "ffi_unaudited":false,
+  "functions":[
+    {"name":"identity","reproducible":true,"constant_time":true,"wcet_steps":2,"stack_bytes":72,"ffi_unaudited":false},
+    {"name":"double_val","reproducible":true,"constant_time":true,"wcet_steps":2,"stack_bytes":72,"ffi_unaudited":false},
+    {"name":"main","reproducible":true,"constant_time":true,"wcet_steps":22,"stack_bytes":80,"ffi_unaudited":false},
+    {"name":"identity__f64","reproducible":true,"constant_time":true,"wcet_steps":2,"stack_bytes":72,"ffi_unaudited":false},
+    {"name":"identity__i32","reproducible":true,"constant_time":true,"wcet_steps":2,"stack_bytes":72,"ffi_unaudited":false}
+  ],
+  "signature":"cabf54f3fc509df44b690bd9483a8b71bbb12ff7545ffd7569d41858a1266978e8986a1a425b8a3e25c992f69ff46714adfb7d9ffc0d4a50801b5e468ddf290b",
+  "pubkey":"faefc9f8bbf0c01668e61d05d6f6dd2a66c478940feb03b4fc82675b4de8d5a3"
+}

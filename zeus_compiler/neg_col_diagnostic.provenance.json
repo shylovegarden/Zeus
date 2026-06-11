@@ -1,0 +1,8 @@
+{
+  "_type":"https://in-toto.io/Statement/v1",
+  "subject":[{"name":"neg_col_diagnostic.c","digest":{"sha256":"f3e3f8d69e478b8378d394239edd6c5931f9cf094763316e3a8fc4f0c060ce5d"}}],
+  "predicateType":"https://slsa.dev/provenance/v1",
+  "predicate":{"buildDefinition":{"buildType":"https://zeus-lang.dev/buildtypes/compile/v1","externalParameters":{"source":"..\\tests\\cases\\neg_col_diagnostic.zs","sourceSha256":"da489cf6c29fdbb1c045bf12891692e466583eded24af19aec496c77e9744998"},"internalParameters":{"compilerFlags":"-O2 -march=native","builderPlatform":"windows/x86_64"},"resolvedDependencies":[{"name":"..\\tests\\cases\\neg_col_diagnostic.zs","digest":{"sha256":"da489cf6c29fdbb1c045bf12891692e466583eded24af19aec496c77e9744998"}}]},"runDetails":{"builder":{"id":"https://zeus-lang.dev/zeus_compiler@v0.1.0"},"metadata":{"invocationId":"6a29e41c-23376","startedOn":"2026-06-10T22:24:28Z","finishedOn":"2026-06-10T22:24:28Z"}}},
+  "signature":"ba224e6daff8b0e41fdf58b0e07d1001fb39473111eb1a47bc93d7870deb3e1b6da8e20642aed88cafa6d97c64ec1254a9dff6dc692fb327f7944ff03c9a830e",
+  "pubkey":"faefc9f8bbf0c01668e61d05d6f6dd2a66c478940feb03b4fc82675b4de8d5a3"
+}

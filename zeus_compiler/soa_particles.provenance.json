@@ -1,0 +1,8 @@
+{
+  "_type":"https://in-toto.io/Statement/v1",
+  "subject":[{"name":"soa_particles.c","digest":{"sha256":"805ea5dd15d71e8b7c6477bdf57758165ff1247b5c00aceab14e21a26d9b1a34"}}],
+  "predicateType":"https://slsa.dev/provenance/v1",
+  "predicate":{"buildDefinition":{"buildType":"https://zeus-lang.dev/buildtypes/compile/v1","externalParameters":{"source":"C:\\Zeus\\Zeus\\tests\\cases\\soa_particles.zs","sourceSha256":"c780f98989816f13cbc39aad607da9b5d03f2a7631987b2e74eb5cbde2daccb3"},"internalParameters":{"compilerFlags":"-O2 -march=native","builderPlatform":"windows/x86_64"},"resolvedDependencies":[{"name":"C:\\Zeus\\Zeus\\tests\\cases\\soa_particles.zs","digest":{"sha256":"c780f98989816f13cbc39aad607da9b5d03f2a7631987b2e74eb5cbde2daccb3"}}]},"runDetails":{"builder":{"id":"https://zeus-lang.dev/zeus_compiler@v0.1.0"},"metadata":{"invocationId":"6a29e440-24392","startedOn":"2026-06-10T22:25:04Z","finishedOn":"2026-06-10T22:25:04Z"}}},
+  "signature":"7e039dda3b2742ed6544078efa70c9eabeb7c230b9c00811a7f97a5f15e64e332de64f5fcd4ce36272daa68a3fb131049726bb5c49be290eac86c0009858e906",
+  "pubkey":"faefc9f8bbf0c01668e61d05d6f6dd2a66c478940feb03b4fc82675b4de8d5a3"
+}

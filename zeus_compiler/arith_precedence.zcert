@@ -1,0 +1,13 @@
+{
+  "zeus_certificate":"v1",
+  "source":"C:\Zeus\Zeus\tests\cases\arith_precedence.zs",
+  "source_sha256":"87f8d424d6bba1a503aec6d93fa57dbb58cbb26968541f02ef8b2f95b7d835b3",
+  "binary_sha256":"none",
+  "zero_heap":true,
+  "ffi_unaudited":false,
+  "functions":[
+    {"name":"main","reproducible":true,"constant_time":true,"wcet_steps":24,"stack_bytes":96,"ffi_unaudited":false}
+  ],
+  "signature":"b3d8585ad5ffeff3badffcb238f1ba4648ca0d5257c547413d3c74580320a5f66e36a4d07793a166f4f44a4403fd39a035c6a2f2d59033d826a7dc62221a8f07",
+  "pubkey":"faefc9f8bbf0c01668e61d05d6f6dd2a66c478940feb03b4fc82675b4de8d5a3"
+}

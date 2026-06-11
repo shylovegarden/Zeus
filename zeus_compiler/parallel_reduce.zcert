@@ -1,0 +1,13 @@
+{
+  "zeus_certificate":"v1",
+  "source":"C:\Zeus\Zeus\tests\cases\parallel_reduce.zs",
+  "source_sha256":"72ac2f9e903aa4636200e6c8d1065e5aff8d7c452ec21b146d790de5bc44227f",
+  "binary_sha256":"none",
+  "zero_heap":false,
+  "ffi_unaudited":false,
+  "functions":[
+    {"name":"main","reproducible":true,"constant_time":true,"wcet_steps":8,"stack_bytes":72,"ffi_unaudited":false}
+  ],
+  "signature":"a6e077134c10ae649e43c5fd4387ca5b4a3e12ca7b65d53445f99851d67af7cf596904f0c4f7f4becefad0415187a085aab68f6a2ae76bc664e81572b944830c",
+  "pubkey":"faefc9f8bbf0c01668e61d05d6f6dd2a66c478940feb03b4fc82675b4de8d5a3"
+}

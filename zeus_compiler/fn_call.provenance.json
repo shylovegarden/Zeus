@@ -1,0 +1,8 @@
+{
+  "_type":"https://in-toto.io/Statement/v1",
+  "subject":[{"name":"fn_call.c","digest":{"sha256":"b134a2c8258c735429d363d899ed08cac41f65402cdb216a146e3b44004f28ce"}}],
+  "predicateType":"https://slsa.dev/provenance/v1",
+  "predicate":{"buildDefinition":{"buildType":"https://zeus-lang.dev/buildtypes/compile/v1","externalParameters":{"source":"C:\\Zeus\\Zeus\\tests\\cases\\fn_call.zs","sourceSha256":"fc7401b4073cd48377379916e3e7afc75a2d1f3667f896354fa50d73d62e7466"},"internalParameters":{"compilerFlags":"-O2 -march=native","builderPlatform":"windows/x86_64"},"resolvedDependencies":[{"name":"C:\\Zeus\\Zeus\\tests\\cases\\fn_call.zs","digest":{"sha256":"fc7401b4073cd48377379916e3e7afc75a2d1f3667f896354fa50d73d62e7466"}}]},"runDetails":{"builder":{"id":"https://zeus-lang.dev/zeus_compiler@v0.1.0"},"metadata":{"invocationId":"6a29e440-14460","startedOn":"2026-06-10T22:25:04Z","finishedOn":"2026-06-10T22:25:04Z"}}},
+  "signature":"ac640939f91200b098761e11dbead583127e99279905c6c3d21fafed1cbeca59710198774dd47f408428eca04e16159eebb05a4ea9e80c4c1977e8e37e647109",
+  "pubkey":"faefc9f8bbf0c01668e61d05d6f6dd2a66c478940feb03b4fc82675b4de8d5a3"
+}

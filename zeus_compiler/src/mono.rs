@@ -170,7 +170,11 @@ fn specialize_fn(generic: &Statement, concrete: &[Type]) -> Option<Statement> {
 
 fn subst_type(t: &Type, subst: &HashMap<String, Type>) -> Type {
     match t {
+        // TypeParam is the canonical form; also handle Struct/Unknown with matching names
+        // because the parser stores unrecognized type identifiers as Struct or Unknown.
         Type::TypeParam(n) => subst.get(n).cloned().unwrap_or_else(|| t.clone()),
+        Type::Struct(n) if subst.contains_key(n.as_str()) => subst[n].clone(),
+        Type::Unknown(n) if subst.contains_key(n.as_str()) => subst[n].clone(),
         Type::Array(b, s) => Type::Array(Box::new(subst_type(b, subst)), s.clone()),
         Type::Pointer(b)  => Type::Pointer(Box::new(subst_type(b, subst))),
         Type::Result(ok, err) => Type::Result(

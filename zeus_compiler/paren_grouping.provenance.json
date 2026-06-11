@@ -1,0 +1,8 @@
+{
+  "_type":"https://in-toto.io/Statement/v1",
+  "subject":[{"name":"paren_grouping.c","digest":{"sha256":"a930a5649297d6ba4f96bcc0e1264bd7b9c91893179fab2309d4f9be693a596b"}}],
+  "predicateType":"https://slsa.dev/provenance/v1",
+  "predicate":{"buildDefinition":{"buildType":"https://zeus-lang.dev/buildtypes/compile/v1","externalParameters":{"source":"C:\\Zeus\\Zeus\\tests\\cases\\paren_grouping.zs","sourceSha256":"b9475225c91e2f60f76c5ddc7581a31e5c4b90313b282cc231173823359e11de"},"internalParameters":{"compilerFlags":"-O2 -march=native","builderPlatform":"windows/x86_64"},"resolvedDependencies":[{"name":"C:\\Zeus\\Zeus\\tests\\cases\\paren_grouping.zs","digest":{"sha256":"b9475225c91e2f60f76c5ddc7581a31e5c4b90313b282cc231173823359e11de"}}]},"runDetails":{"builder":{"id":"https://zeus-lang.dev/zeus_compiler@v0.1.0"},"metadata":{"invocationId":"6a29e440-20620","startedOn":"2026-06-10T22:25:04Z","finishedOn":"2026-06-10T22:25:04Z"}}},
+  "signature":"1fa8c75cf4405055d9d3eea5f7b452d3de1ecae0e142d1b8cf8746355b36ec1aa59e72492d38d013d3404f5227acec58fc9442fb5c3a3fd54d952e3f25ab5406",
+  "pubkey":"faefc9f8bbf0c01668e61d05d6f6dd2a66c478940feb03b4fc82675b4de8d5a3"
+}

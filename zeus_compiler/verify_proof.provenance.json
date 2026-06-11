@@ -1,0 +1,8 @@
+{
+  "_type":"https://in-toto.io/Statement/v1",
+  "subject":[{"name":"verify_proof.c","digest":{"sha256":"f1638c3525a2177f514509161a65335b657e4d8ca2f9688c7af8ca20f81ab858"}}],
+  "predicateType":"https://slsa.dev/provenance/v1",
+  "predicate":{"buildDefinition":{"buildType":"https://zeus-lang.dev/buildtypes/compile/v1","externalParameters":{"source":"C:\\Zeus\\Zeus\\tests\\cases\\verify_proof.zs","sourceSha256":"271c1902497bd1c2f10cde420f587048240ba68987cd23c2e57efacaf36553c3"},"internalParameters":{"compilerFlags":"-O2 -march=native","builderPlatform":"windows/x86_64"},"resolvedDependencies":[{"name":"C:\\Zeus\\Zeus\\tests\\cases\\verify_proof.zs","digest":{"sha256":"271c1902497bd1c2f10cde420f587048240ba68987cd23c2e57efacaf36553c3"}}]},"runDetails":{"builder":{"id":"https://zeus-lang.dev/zeus_compiler@v0.1.0"},"metadata":{"invocationId":"6a29e440-19708","startedOn":"2026-06-10T22:25:04Z","finishedOn":"2026-06-10T22:25:04Z"}}},
+  "signature":"b9bfcb6de01fcbbab846d15e22efe2e51fba4a8e017192faaea5296d6d7a10ee82ac90a59d7bd810cc53f012c8b6a52a8198c14b83907318ddf42fd990fe630f",
+  "pubkey":"faefc9f8bbf0c01668e61d05d6f6dd2a66c478940feb03b4fc82675b4de8d5a3"
+}

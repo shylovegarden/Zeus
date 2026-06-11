@@ -1,0 +1,13 @@
+{
+  "zeus_certificate":"v1",
+  "source":"C:\Zeus\Zeus\tests\cases\compound_assign.zs",
+  "source_sha256":"b60bb3bb5e6bef7a01e1dfd5fcde0902820c9db994951d8a13ed4ed3179e2816",
+  "binary_sha256":"none",
+  "zero_heap":true,
+  "ffi_unaudited":false,
+  "functions":[
+    {"name":"main","reproducible":true,"constant_time":true,"wcet_steps":13,"stack_bytes":72,"ffi_unaudited":false}
+  ],
+  "signature":"85642ba380d3700957a8e24cbad7227b6db1836ccd8d56515ccd740c337d3f4062a5d75d49acde078aca3b3011370859d4e1e69ca89c10715298406c73b4e706",
+  "pubkey":"faefc9f8bbf0c01668e61d05d6f6dd2a66c478940feb03b4fc82675b4de8d5a3"
+}

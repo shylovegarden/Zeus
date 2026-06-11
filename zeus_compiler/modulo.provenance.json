@@ -1,0 +1,8 @@
+{
+  "_type":"https://in-toto.io/Statement/v1",
+  "subject":[{"name":"modulo.c","digest":{"sha256":"74b8512d43310fcf6f279b8576d2232b8ffc17edfa89fe7f206e077e4eb005e1"}}],
+  "predicateType":"https://slsa.dev/provenance/v1",
+  "predicate":{"buildDefinition":{"buildType":"https://zeus-lang.dev/buildtypes/compile/v1","externalParameters":{"source":"C:\\Zeus\\Zeus\\tests\\cases\\modulo.zs","sourceSha256":"c805b6f9bb3c9e6c86191c9b9d95421add8a06b206f51e3e071afe086292b465"},"internalParameters":{"compilerFlags":"-O2 -march=native","builderPlatform":"windows/x86_64"},"resolvedDependencies":[{"name":"C:\\Zeus\\Zeus\\tests\\cases\\modulo.zs","digest":{"sha256":"c805b6f9bb3c9e6c86191c9b9d95421add8a06b206f51e3e071afe086292b465"}}]},"runDetails":{"builder":{"id":"https://zeus-lang.dev/zeus_compiler@v0.1.0"},"metadata":{"invocationId":"6a29e440-21516","startedOn":"2026-06-10T22:25:04Z","finishedOn":"2026-06-10T22:25:04Z"}}},
+  "signature":"a1cc3117d9c7884b79c470c1bb2e103c6c9f16af976e9cea1cf783ffef69ea6219a2924f0ab3e9ebde07f10caa305b173fb7937229627740e3f9dd333b23000f",
+  "pubkey":"faefc9f8bbf0c01668e61d05d6f6dd2a66c478940feb03b4fc82675b4de8d5a3"
+}

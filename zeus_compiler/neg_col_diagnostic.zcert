@@ -1,0 +1,13 @@
+{
+  "zeus_certificate":"v1",
+  "source":"..\tests\cases\neg_col_diagnostic.zs",
+  "source_sha256":"da489cf6c29fdbb1c045bf12891692e466583eded24af19aec496c77e9744998",
+  "binary_sha256":"none",
+  "zero_heap":true,
+  "ffi_unaudited":false,
+  "functions":[
+    {"name":"main","reproducible":true,"constant_time":true,"wcet_steps":0,"stack_bytes":64,"ffi_unaudited":false}
+  ],
+  "signature":"475193f178520fb2b61d4733535883bc61b02ea3de7a79673b660e2fd33f5320340e06bfeb4c14c8b19aa9a3c5b3707bc8bfdf55ee1ea93340484abb68b5e90e",
+  "pubkey":"faefc9f8bbf0c01668e61d05d6f6dd2a66c478940feb03b4fc82675b4de8d5a3"
+}

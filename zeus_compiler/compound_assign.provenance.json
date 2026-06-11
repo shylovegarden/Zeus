@@ -1,0 +1,8 @@
+{
+  "_type":"https://in-toto.io/Statement/v1",
+  "subject":[{"name":"compound_assign.c","digest":{"sha256":"e4a99c4291847f55b8437279b8281b355a816c1728a7c02c2309a731c6d18bb7"}}],
+  "predicateType":"https://slsa.dev/provenance/v1",
+  "predicate":{"buildDefinition":{"buildType":"https://zeus-lang.dev/buildtypes/compile/v1","externalParameters":{"source":"C:\\Zeus\\Zeus\\tests\\cases\\compound_assign.zs","sourceSha256":"b60bb3bb5e6bef7a01e1dfd5fcde0902820c9db994951d8a13ed4ed3179e2816"},"internalParameters":{"compilerFlags":"-O2 -march=native","builderPlatform":"windows/x86_64"},"resolvedDependencies":[{"name":"C:\\Zeus\\Zeus\\tests\\cases\\compound_assign.zs","digest":{"sha256":"b60bb3bb5e6bef7a01e1dfd5fcde0902820c9db994951d8a13ed4ed3179e2816"}}]},"runDetails":{"builder":{"id":"https://zeus-lang.dev/zeus_compiler@v0.1.0"},"metadata":{"invocationId":"6a29e440-19516","startedOn":"2026-06-10T22:25:04Z","finishedOn":"2026-06-10T22:25:04Z"}}},
+  "signature":"b6dacf02916b44ce53a733aeef4eaf9afb47c6c49410bd0d5d62557510e6e6c948088cb5b6270d7bd954c94f4a6c1217c37bb2ca6be265df457a65655760a607",
+  "pubkey":"faefc9f8bbf0c01668e61d05d6f6dd2a66c478940feb03b4fc82675b4de8d5a3"
+}

@@ -1,0 +1,13 @@
+{
+  "zeus_certificate":"v1",
+  "source":"C:\Zeus\Zeus\tests\cases\mutable_var.zs",
+  "source_sha256":"e4fc330a541072c293286e2ef64dccd92141ad90ea8ccebcd1d8a646852dd582",
+  "binary_sha256":"none",
+  "zero_heap":true,
+  "ffi_unaudited":false,
+  "functions":[
+    {"name":"main","reproducible":true,"constant_time":true,"wcet_steps":20,"stack_bytes":72,"ffi_unaudited":false}
+  ],
+  "signature":"537be274c4d5791a01af345280594965934840e9afd5278810140aa275553a22f5391648fd9ab3b2268518aa825afcfd0506e1650e3f09c3b05fad664f2a4a05",
+  "pubkey":"faefc9f8bbf0c01668e61d05d6f6dd2a66c478940feb03b4fc82675b4de8d5a3"
+}

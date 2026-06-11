@@ -346,8 +346,13 @@ impl<'a> Lexer<'a> {
             Some(ch) if ch.is_ascii_digit() => {
                 return Token::Number(self.read_number());
             }
+            Some(ch) => {
+                // Characters that are not valid at the start of any Zeus token
+                self.errors.push(format!("{}:{}: unexpected character '{}'",
+                    self.line_number, self.col, ch));
+                Token::Identifier(ch.to_string()) // still emit a token so the parser can keep going
+            }
             None => return Token::Eof,
-            _ => Token::Identifier(self.ch.unwrap().to_string()), // catch-all for errors currently
         };
 
         self.read_char();

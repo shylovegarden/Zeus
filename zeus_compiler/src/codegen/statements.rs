@@ -134,7 +134,17 @@ impl CCodegen {
                 }
             }
             Statement::If { condition, consequence, alternative } => {
-                let mut out = format!("{}if ({}) {{\n", pad, self.generate_expression(condition));
+                // [SLH — Speculative Load Hardening, Vector 4]
+                // If the branch condition involves a secret-tainted value, inject a
+                // speculation barrier (_mm_lfence on x86 / isb on ARM64) immediately
+                // before the branch. This cuts the dataflow from transient speculative
+                // loads to stable memory sinks, defeating Spectre-v1 / BLADE attacks.
+                let cond_is_secret = self.is_secret_var(condition);
+                let mut out = String::new();
+                if cond_is_secret {
+                    out.push_str(&format!("{}zeus_speculation_flush(); // [SLH: secret-conditional branch barrier]\n", pad));
+                }
+                out.push_str(&format!("{}if ({}) {{\n", pad, self.generate_expression(condition)));
                 for s in consequence {
                     out.push_str(&self.generate_statement(s, indent + 1));
                 }

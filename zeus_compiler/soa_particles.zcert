@@ -1,0 +1,13 @@
+{
+  "zeus_certificate":"v1",
+  "source":"C:\Zeus\Zeus\tests\cases\soa_particles.zs",
+  "source_sha256":"c780f98989816f13cbc39aad607da9b5d03f2a7631987b2e74eb5cbde2daccb3",
+  "binary_sha256":"none",
+  "zero_heap":true,
+  "ffi_unaudited":false,
+  "functions":[
+    {"name":"main","reproducible":true,"constant_time":true,"wcet_steps":26,"stack_bytes":1096,"ffi_unaudited":false}
+  ],
+  "signature":"cd6905d8ca066c7ae07aba6c2fb5e30921f3599aa48ed5492a1ad19ad7654c96a7c0c36f7fd67e4617e96020f31d7684e7526a34ce394fb1ea5828efe4108906",
+  "pubkey":"faefc9f8bbf0c01668e61d05d6f6dd2a66c478940feb03b4fc82675b4de8d5a3"
+}
