@@ -21,11 +21,22 @@ This directory contains the benchmark suites for validating and characterizing t
 
 # Phase 2: Performance characterization
 ./run_microbenchmarks.sh
+
+# Phase 3: Comparative analysis
+./run_comparative_analysis.sh
+
+# Phase 4: Dissemination (papers, open-source release)
+./run_phase4.sh
+
+# All phases (1–4)
+./run_all_phases.sh
 ```
 
 ## Expected Outputs
-- `research_results.json` — Vector telemetry from audit
-- `microbenchmarks.csv` — Cycle counts and latencies
+- `research_results.json` — Vector telemetry from audit (Phase 1)
+- `microbenchmarks.csv` — Cycle counts and latencies (Phase 2)
+- `comparative_results.json` — Speedups vs baselines (Phase 3)
+- Draft abstracts in `../papers/` (Phase 4)
 - Summary tables printed to console
 
 ## Integration with CI
@@ -34,10 +45,9 @@ Add to `.github/workflows/ci.yml` (when OAuth scope allows):
 - name: Research Benchmarks
   run: |
     cd benchmarks
-    ./run_research_suite.sh
-    ./run_microbenchmarks.sh
+    ./run_all_phases.sh
 ```
 
-## Next Phases
-- Phase 3: Comparative analysis vs academic baselines
-- Phase 4: Dissemination (papers, open-source release)
+## Dissemination
+- Draft abstracts for PLDI, ASPLOS, SOSP, USENIX Security, OSDI
+- Open-source release plan (Apache 2.0, Docker, reproducibility)

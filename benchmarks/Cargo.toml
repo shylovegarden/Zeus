@@ -11,5 +11,10 @@ path = "research_suite.rs"
 name = "microbenchmarks"
 path = "microbenchmarks.rs"
 
+[[bin]]
+name = "comparative_analysis"
+path = "comparative_analysis.rs"
+
 [dependencies]
+serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"

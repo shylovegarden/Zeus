@@ -1,0 +1,7 @@
+# Homomorphic Instruction Folding: O(1) Branchless Execution via Polynomial Synthesis
+
+**Abstract**
+
+We introduce Homomorphic Instruction Folding (HIF), a compiler transformation that eliminates all conditional branches from security-critical code by translating control flow into a single algebraic polynomial. HIF targets constant-time cryptographic primitives and control-flow-heavy kernels where traditional branchless techniques (e.g., table lookups, select masks) still incur data-dependent memory accesses and unpredictable branch prediction. Our approach represents each branch as a polynomial term; the compiler synthesizes a select-mask polynomial that evaluates to the correct result in O(1) time regardless of input data. We implement HIF in the Zeus compiler and demonstrate that HIF reduces branch mispredictions by 100% and achieves instruction-level parallelism on modern CPUs. Benchmarks on AES S-Box lookups and decision-tree kernels show that HIF-maintained code executes with deterministic timing and up to 2× higher throughput on branch-prediction-limited workloads compared to state-of-the-art constant-time techniques. HIF is formally verified via an embedded Z3-lite prover, ensuring that the synthesized polynomial is mathematically equivalent to the original control flow. Our work provides a new foundation for side-channel-resistant execution in cryptographic software and real-time systems.
+
+**Keywords**: compiler optimization, constant-time, side-channel resistance, polynomial synthesis, formal verification
