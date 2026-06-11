@@ -31,6 +31,7 @@ mod silicon_aware;
 mod enclave;
 mod swarm;
 mod policy;
+mod proof_viz;
 
 use ast::Statement;
 use lexer::Lexer;
@@ -205,6 +206,21 @@ fn main() {
                 else { target = arg; }
             }
             verify_project(target, is_medical_mode);
+        }
+        "proof-viz" => {
+            let mut target: Option<&str> = None;
+            let mut output: Option<&str> = None;
+            let mut expect_output = false;
+            for arg in &args[2..] {
+                if expect_output { output = Some(arg); expect_output = false; }
+                else if arg == "-o" || arg == "--output" { expect_output = true; }
+                else if arg.starts_with("-o=") { output = Some(arg.trim_start_matches("-o=")); }
+                else { target = Some(arg); }
+            }
+            match target {
+                Some(t) => proof_viz::cmd_proof_viz(t, output),
+                None => { eprintln!("usage: zeus proof-viz <file.zs> [-o output.html]"); std::process::exit(1); }
+            }
         }
 
         "strike" => {
