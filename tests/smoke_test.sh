@@ -12,6 +12,19 @@ strip() { sed -e 's/\x1b\[[0-9;]*m//g'; }
 ok()  { PASS=$((PASS+1)); printf '  \033[32mPASS\033[0m %s\n' "$1"; }
 no()  { FAIL=$((FAIL+1)); FAILED+=("$1"); printf '  \033[31mFAIL\033[0m %s  -- %s\n' "$1" "${2:-}"; }
 
+# Cross-platform timeout wrapper (macOS doesn't have timeout by default)
+run_with_timeout() {
+    local secs=$1; shift
+    if command -v timeout >/dev/null 2>&1; then
+        timeout "$secs" "$@"
+    elif command -v gtimeout >/dev/null 2>&1; then
+        gtimeout "$secs" "$@"
+    else
+        # No timeout available, run directly (risky but better than failing)
+        "$@"
+    fi
+}
+
 # write source $2 to scratch/$1.zs, echo the path
 src() { printf '%b\n' "$2" > "$SCRATCH/$1.zs"; echo "$SCRATCH/$1.zs"; }
 
@@ -60,7 +73,7 @@ build_fail typename_fn 'fn f32(n:i32)->i32{return n;}\npub fn main(){println(0);
 # variable divide-by-zero must trap CLEANLY (rc 136), not raw SIGFPE
 DZ=$(src divzero 'fn f(a:i32,b:i32)->i32{ return a / b; } pub fn main(){ println(f(10,0)); }')
 ( cd "$SCRATCH" && "$BIN" build divzero.zs >/dev/null 2>&1 )
-( cd "$SCRATCH" && timeout 3 ./divzero >/dev/null 2>&1 ); dzrc=$?
+( cd "$SCRATCH" && run_with_timeout 3 ./divzero >/dev/null 2>&1 ); dzrc=$?
 [ "$dzrc" = "136" ] && ok "divzero_clean_trap (rc=136)" || no "divzero_clean_trap" "rc=$dzrc (want clean trap not SIGFPE)"
 
 echo ""

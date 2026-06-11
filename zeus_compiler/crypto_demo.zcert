@@ -1,0 +1,14 @@
+{
+  "zeus_certificate":"v1",
+  "source":"/tmp/crypto_demo.zs",
+  "source_sha256":"fccc1011b68c7efa24eceb39e5e64c6a537a6189cb9d51bf3efdcb35bb447382",
+  "binary_sha256":"691a49492283f306b636486ffe0e3705a42251d08ac8f07eec20e66ae88f8ec7",
+  "zero_heap":false,
+  "ffi_unaudited":false,
+  "functions":[
+    {"name":"secure_add","reproducible":true,"constant_time":true,"wcet_steps":4,"stack_bytes":80,"ffi_unaudited":false},
+    {"name":"main","reproducible":true,"constant_time":true,"wcet_steps":50,"stack_bytes":96,"ffi_unaudited":false}
+  ],
+  "signature":"ee34c45a8107cfdcb1ed270b346d16745450ccbfebc77037bfe438e354b93c25e3661fd3144a80192d643efbb53e9b0a58a1b230277cf67f4f064a255b95160b",
+  "pubkey":"0fb2d04ef344666b16a24c2f3c21daea89d8af5c919d7abfe71ee72c5c8125ff"
+}

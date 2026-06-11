@@ -1,0 +1,8 @@
+{
+  "_type":"https://in-toto.io/Statement/v1",
+  "subject":[{"name":"simple_bench_zeus","digest":{"sha256":"6f567f90432834e1150912d9101bc3d3445c1b5f5ce8e679f573e784f1a6e6ae"}}],
+  "predicateType":"https://slsa.dev/provenance/v1",
+  "predicate":{"buildDefinition":{"buildType":"https://zeus-lang.dev/buildtypes/compile/v1","externalParameters":{"source":"/tmp/simple_bench_zeus.zs","sourceSha256":"d309959bda2cc2135782358a94e001136cb7962135d3183b26a519bff3b6c6d8"},"internalParameters":{"compilerFlags":"-O2 -march=native","builderPlatform":"macos/aarch64"},"resolvedDependencies":[{"name":"/tmp/simple_bench_zeus.zs","digest":{"sha256":"d309959bda2cc2135782358a94e001136cb7962135d3183b26a519bff3b6c6d8"}}]},"runDetails":{"builder":{"id":"https://zeus-lang.dev/zeus_compiler@v0.1.0"},"metadata":{"invocationId":"6a29ee22-37145","startedOn":"2026-06-10T23:07:14Z","finishedOn":"2026-06-10T23:07:14Z"}}},
+  "signature":"b9e89b126c904459f42bd01512d66fcda57d8b66e57503866e46bff4531b1e43af5a829031ed3a86c4e893e3bab946b144d11851e627259a626c54234d778e0b",
+  "pubkey":"0fb2d04ef344666b16a24c2f3c21daea89d8af5c919d7abfe71ee72c5c8125ff"
+}

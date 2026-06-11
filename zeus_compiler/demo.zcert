@@ -1,0 +1,14 @@
+{
+  "zeus_certificate":"v1",
+  "source":"/tmp/demo.zs",
+  "source_sha256":"09f38c9ee97a6cee61ada4854a2f2b5c4c1dd8faeb07a7460d1995f0af05c497",
+  "binary_sha256":"3645fe996334ac224be53b39b25865a0aeaac8a7fd625ff9e473b58b76abb6a0",
+  "zero_heap":true,
+  "ffi_unaudited":false,
+  "functions":[
+    {"name":"fibonacci","reproducible":true,"constant_time":true,"wcet_steps":null,"stack_bytes":72,"ffi_unaudited":false},
+    {"name":"main","reproducible":true,"constant_time":true,"wcet_steps":null,"stack_bytes":72,"ffi_unaudited":false}
+  ],
+  "signature":"b7672a3efd0ffdbf2edb89b701a39f759a3e8da9ddfb7b6767b23465f2ae890ed92327f597382932d358f984c12addf5e68d5d440e5ffde46fac6241c677c304",
+  "pubkey":"0fb2d04ef344666b16a24c2f3c21daea89d8af5c919d7abfe71ee72c5c8125ff"
+}

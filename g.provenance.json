@@ -1,8 +1,8 @@
 {
   "_type":"https://in-toto.io/Statement/v1",
-  "subject":[{"name":"g","digest":{"sha256":"e83ccb161bad4e28d76e820c09afeda04d0667224d61c39903646dab2910783b"}}],
+  "subject":[{"name":"g","digest":{"sha256":"73ff391f067ffd14d806628926cef40e30a1360d0908a47e5b9758bf23f65c3f"}}],
   "predicateType":"https://slsa.dev/provenance/v1",
-  "predicate":{"buildDefinition":{"buildType":"https://zeus-lang.dev/buildtypes/compile/v1","externalParameters":{"source":"/sessions/wonderful-exciting-archimedes/tmp/tmpp7v9oyr2/g.zs","sourceSha256":"90eaafa0d5381d07b31d69802f76f09028ecd308bf633596c21af1078b18128d"},"internalParameters":{"compilerFlags":"-O2 -march=native","builderPlatform":"linux/x86_64"},"resolvedDependencies":[{"name":"/sessions/wonderful-exciting-archimedes/tmp/tmpp7v9oyr2/g.zs","digest":{"sha256":"90eaafa0d5381d07b31d69802f76f09028ecd308bf633596c21af1078b18128d"}}]},"runDetails":{"builder":{"id":"https://zeus-lang.dev/zeus_compiler@v0.1.0"},"metadata":{"invocationId":"6a299d15-1246","startedOn":"2026-06-10T17:21:25Z","finishedOn":"2026-06-10T17:21:25Z"}}},
-  "signature":"64c0e36573a082b239a65ec1e99d50b34b73a0f207b76bcdd2f98690e68193cf70c796cda51e7d1d104b1bed447a3822cb180cca154526c3ed1118da8015d901",
-  "pubkey":"688615eb64f575bb7ab65fc34d4398529df246fd263b168877100ec00eb63b42"
+  "predicate":{"buildDefinition":{"buildType":"https://zeus-lang.dev/buildtypes/compile/v1","externalParameters":{"source":"/var/folders/71/lbfsjd493kl2mbnrtpw1w9nm0000gn/T/tmpo54o5cbg/g.zs","sourceSha256":"ea8d2d9c4c15d9adee03889056004da37e692e9fe2db5e25c585037e87959b2b"},"internalParameters":{"compilerFlags":"-O2 -march=native","builderPlatform":"macos/aarch64"},"resolvedDependencies":[{"name":"/var/folders/71/lbfsjd493kl2mbnrtpw1w9nm0000gn/T/tmpo54o5cbg/g.zs","digest":{"sha256":"ea8d2d9c4c15d9adee03889056004da37e692e9fe2db5e25c585037e87959b2b"}}]},"runDetails":{"builder":{"id":"https://zeus-lang.dev/zeus_compiler@v0.1.0"},"metadata":{"invocationId":"6a29e847-79649","startedOn":"2026-06-10T22:42:15Z","finishedOn":"2026-06-10T22:42:15Z"}}},
+  "signature":"828eef33f1e94e9066e562a460f5492a986070ec22229ead5215e4e59b9d9bc55f2f0718bcde5652907e1ed976f27b38a64cc5a2eeb1601c48cdec6da42a9f0d",
+  "pubkey":"0fb2d04ef344666b16a24c2f3c21daea89d8af5c919d7abfe71ee72c5c8125ff"
 }

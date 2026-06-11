@@ -1,0 +1,13 @@
+{
+  "zeus_certificate":"v1",
+  "source":"/tmp/simple_bench_zeus.zs",
+  "source_sha256":"d309959bda2cc2135782358a94e001136cb7962135d3183b26a519bff3b6c6d8",
+  "binary_sha256":"6f567f90432834e1150912d9101bc3d3445c1b5f5ce8e679f573e784f1a6e6ae",
+  "zero_heap":true,
+  "ffi_unaudited":false,
+  "functions":[
+    {"name":"main","reproducible":true,"constant_time":true,"wcet_steps":null,"stack_bytes":320128,"ffi_unaudited":false}
+  ],
+  "signature":"05205305dd60444d96fa59cc44fe4e34a248f4d4b9b706a6a4266a71f832138e5b4da6b546491c3c8c76080162b0c266f7a3089ce6ac9496904b226c19fec007",
+  "pubkey":"0fb2d04ef344666b16a24c2f3c21daea89d8af5c919d7abfe71ee72c5c8125ff"
+}

@@ -1,0 +1,8 @@
+{
+  "_type":"https://in-toto.io/Statement/v1",
+  "subject":[{"name":"crypto_demo","digest":{"sha256":"691a49492283f306b636486ffe0e3705a42251d08ac8f07eec20e66ae88f8ec7"}}],
+  "predicateType":"https://slsa.dev/provenance/v1",
+  "predicate":{"buildDefinition":{"buildType":"https://zeus-lang.dev/buildtypes/compile/v1","externalParameters":{"source":"/tmp/crypto_demo.zs","sourceSha256":"fccc1011b68c7efa24eceb39e5e64c6a537a6189cb9d51bf3efdcb35bb447382"},"internalParameters":{"compilerFlags":"-O2 -march=native","builderPlatform":"macos/aarch64"},"resolvedDependencies":[{"name":"/tmp/crypto_demo.zs","digest":{"sha256":"fccc1011b68c7efa24eceb39e5e64c6a537a6189cb9d51bf3efdcb35bb447382"}}]},"runDetails":{"builder":{"id":"https://zeus-lang.dev/zeus_compiler@v0.1.0"},"metadata":{"invocationId":"6a29e8dd-85605","startedOn":"2026-06-10T22:44:45Z","finishedOn":"2026-06-10T22:44:45Z"}}},
+  "signature":"553902a3b0bac444bf52344bdd953b0b2fedf181959675e366515ecef484182f689663a760433b0eb139b141dc12603bdffda4c7262106f107c4586999442d0f",
+  "pubkey":"0fb2d04ef344666b16a24c2f3c21daea89d8af5c919d7abfe71ee72c5c8125ff"
+}
