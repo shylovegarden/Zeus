@@ -1,0 +1,52 @@
+name: 'Zeus Verify'
+description: 'Mathematically prove your code is safe - zero-heap, constant-time, bounded execution'
+author: 'Zeus Language Team'
+branding:
+  icon: 'shield'
+  color: 'blue'
+
+inputs:
+  source-path:
+    description: 'Path to source code to verify'
+    required: true
+    default: './src'
+  language:
+    description: 'Source language (c, rust, zeus)'
+    required: false
+    default: 'auto-detect'
+  policy:
+    description: 'Security policies to enforce (comma-separated: zero-heap,constant-time,bounded)'
+    required: false
+    default: 'zero-heap,constant-time'
+  fail-on:
+    description: 'Minimum severity to fail build (warning, critical)'
+    required: false
+    default: 'critical'
+  api-key:
+    description: 'Zeus Cloud API key (optional, for dashboard integration)'
+    required: false
+  generate-report:
+    description: 'Generate detailed security report'
+    required: false
+    default: 'true'
+
+outputs:
+  certificate:
+    description: 'Path to generated security certificate'
+  report-url:
+    description: 'URL to security report (if dashboard enabled)'
+  verification-passed:
+    description: 'Whether all policies passed (true/false)'
+  properties-verified:
+    description: 'Comma-separated list of verified properties'
+
+runs:
+  using: 'docker'
+  image: 'Dockerfile'
+  env:
+    ZEUS_SOURCE_PATH: ${{ inputs.source-path }}
+    ZEUS_LANGUAGE: ${{ inputs.language }}
+    ZEUS_POLICY: ${{ inputs.policy }}
+    ZEUS_FAIL_ON: ${{ inputs.fail-on }}
+    ZEUS_API_KEY: ${{ inputs.api-key }}
+    ZEUS_GENERATE_REPORT: ${{ inputs.generate-report }}
