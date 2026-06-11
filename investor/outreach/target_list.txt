@@ -1,0 +1,21 @@
+# Seed Round Targets - $500K
+
+Tier 1 (Likely):
+- Founders Fund (formal methods interest)
+- a16z crypto (blockchain vertical)
+- Bessemer (dev tools)
+
+Tier 2 (Good fit):
+- Sequoia (technical founders)
+- Greylock (infrastructure)
+- Benchmark (open source)
+
+Tier 3 (Strategic):
+- Protocol Labs (crypto/verification)
+- Paradigm (crypto)
+- Accel (enterprise)
+
+Angels:
+- Naval Ravikant
+- Elad Gil
+- Daniel Gross
