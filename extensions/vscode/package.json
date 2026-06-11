@@ -1,0 +1,42 @@
+{
+  "name": "zeus-vscode",
+  "displayName": "Zeus Language Support",
+  "description": "Official VS Code extension for Zeus programming language",
+  "version": "0.1.0",
+  "publisher": "zeus-lang",
+  "engines": { "vscode": "^1.74.0" },
+  "categories": ["Programming Languages", "Debuggers", "Formatters"],
+  "activationEvents": ["onLanguage:zeus"],
+  "main": "./out/extension.js",
+  "contributes": {
+    "languages": [{
+      "id": "zeus",
+      "aliases": ["Zeus", "zeus"],
+      "extensions": [".zs"],
+      "configuration": "./language-configuration.json"
+    }],
+    "grammars": [{
+      "language": "zeus",
+      "scopeName": "source.zeus",
+      "path": "./syntaxes/zeus.tmLanguage.json"
+    }],
+    "commands": [
+      { "command": "zeus.build", "title": "Zeus: Build" },
+      { "command": "zeus.verify", "title": "Zeus: Verify" },
+      { "command": "zeus.run", "title": "Zeus: Run" }
+    ],
+    "keybindings": [
+      { "command": "zeus.build", "key": "ctrl+shift+b", "mac": "cmd+shift+b" },
+      { "command": "zeus.run", "key": "f5" }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.74.0",
+    "typescript": "^4.9.4"
+  }
+}
