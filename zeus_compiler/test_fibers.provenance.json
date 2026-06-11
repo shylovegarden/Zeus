@@ -1,0 +1,8 @@
+{
+  "_type":"https://in-toto.io/Statement/v1",
+  "subject":[{"name":"test_fibers","digest":{"sha256":"350a6b9ae9d4fcf0838e05d5c16527c5633e9fcbe4c765decfa851bb50d638c3"}}],
+  "predicateType":"https://slsa.dev/provenance/v1",
+  "predicate":{"buildDefinition":{"buildType":"https://zeus-lang.dev/buildtypes/compile/v1","externalParameters":{"source":"test_fibers.zs","sourceSha256":"aab56a6d064a3bbdc1e6163e7326c0ace418d3540c522231a0639494ca78a903"},"internalParameters":{"compilerFlags":"-O2 -march=native","builderPlatform":"macos/aarch64"},"resolvedDependencies":[{"name":"test_fibers.zs","digest":{"sha256":"aab56a6d064a3bbdc1e6163e7326c0ace418d3540c522231a0639494ca78a903"}}]},"runDetails":{"builder":{"id":"https://zeus-lang.dev/zeus_compiler@v0.1.0"},"metadata":{"invocationId":"6a2ac8cf-8865","startedOn":"2026-06-11T14:40:15Z","finishedOn":"2026-06-11T14:40:15Z"}}},
+  "signature":"b97c7f94e01cde4915f4edf2c6a1e03e9c9f89a384abe4c1116b0bc2111653525435a8a164ade6fef51320cf29f14943776f5ebde7c97ce7847e65aa57a40402",
+  "pubkey":"0fb2d04ef344666b16a24c2f3c21daea89d8af5c919d7abfe71ee72c5c8125ff"
+}

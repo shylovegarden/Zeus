@@ -1,0 +1,13 @@
+{
+  "zeus_certificate":"v1",
+  "source":"mlir_test.zs",
+  "source_sha256":"bd03f1a82745ca4b9a9c7839a7d4ba8924acbf3d4e61545bb2700923cf24124e",
+  "binary_sha256":"none",
+  "zero_heap":true,
+  "ffi_unaudited":false,
+  "functions":[
+    {"name":"gpu_kernel","reproducible":true,"constant_time":true,"wcet_steps":4,"stack_bytes":64,"ffi_unaudited":false}
+  ],
+  "signature":"96fee64ab8b716622361c5bbf6d9fbc12addcafeacc0890317e8897c2de4943c5d4a2950e0f4ecd66e1193a2a876f0291408ad2eab29539d0f313665f8a82509",
+  "pubkey":"0fb2d04ef344666b16a24c2f3c21daea89d8af5c919d7abfe71ee72c5c8125ff"
+}

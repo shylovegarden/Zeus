@@ -4,5 +4,5 @@ Zero-heap enforced (no malloc/calloc/free, no stdlib.h): yes
 @verify constraints:   0
 @requires preconditions: 0 (runtime-enforced)
 @ensures postconditions: 0 (runtime-enforced)
-secret data (RAM-wiped + oblivious access): yes
+secret data (RAM-wiped + oblivious access): no
 MISRA C:2012 Rule 21.3 (no dynamic memory): satisfied by construction.

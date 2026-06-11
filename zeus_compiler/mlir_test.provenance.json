@@ -1,0 +1,8 @@
+{
+  "_type":"https://in-toto.io/Statement/v1",
+  "subject":[{"name":"mlir_test.c","digest":{"sha256":"6a8c0af27a094380c44deb5ae53caf4589ac2483ad9cb9f35cf938b7c36f1e83"}}],
+  "predicateType":"https://slsa.dev/provenance/v1",
+  "predicate":{"buildDefinition":{"buildType":"https://zeus-lang.dev/buildtypes/compile/v1","externalParameters":{"source":"mlir_test.zs","sourceSha256":"bd03f1a82745ca4b9a9c7839a7d4ba8924acbf3d4e61545bb2700923cf24124e"},"internalParameters":{"compilerFlags":"-O2 -march=native","builderPlatform":"macos/aarch64"},"resolvedDependencies":[{"name":"mlir_test.zs","digest":{"sha256":"bd03f1a82745ca4b9a9c7839a7d4ba8924acbf3d4e61545bb2700923cf24124e"}}]},"runDetails":{"builder":{"id":"https://zeus-lang.dev/zeus_compiler@v0.1.0"},"metadata":{"invocationId":"6a2ac8cf-8592","startedOn":"2026-06-11T14:40:15Z","finishedOn":"2026-06-11T14:40:15Z"}}},
+  "signature":"a79958dd207a54d6be2c74d291c1fc365a35b0f2a238b218bd89815a3f37b3f8ea14433f2e326a87473f80d702d65e6a0b17beed2ef81c2f0814e427fc11560e",
+  "pubkey":"0fb2d04ef344666b16a24c2f3c21daea89d8af5c919d7abfe71ee72c5c8125ff"
+}
