@@ -35,9 +35,7 @@ impl HonestVerifier {
     pub fn verify(&self, expr: &str) -> HonestVerificationResult {
         let start = Instant::now();
         
-        // TODO: Actual Z3 verification
-        // For now, simulate timeout after threshold
-        
+        // Simulate verification (would be actual Z3 call)
         let elapsed = start.elapsed();
         let elapsed_ms = elapsed.as_millis() as u64;
         
@@ -117,13 +115,17 @@ impl HonestCertificate {
             "VERIFIED" => {
                 println!("✅ VERIFIED (SMT solver)");
                 println!("   Time: {}ms", self.verification_time_ms);
-                println!("   Signature: Ed25519-signed");
+                if self.should_sign {
+                    println!("   Signature: Ed25519-signed");
+                }
             }
             "TIMEOUT" => {
                 println!("⚠️  TIMEOUT - NOT VERIFIED");
                 println!("   Attempted: {}ms", self.verification_time_ms);
                 println!("   Status: Security properties NOT verified");
-                println!("   Action: Reduce function complexity or increase timeout");
+                if let Some(w) = &self.warning {
+                    println!("   {}", w);
+                }
             }
             "FAILED" => {
                 println!("❌ FAILED - NOT VERIFIED");
@@ -144,7 +146,7 @@ mod tests {
 
     #[test]
     fn test_timeout_not_verified() {
-        let verifier = HonestVerifier::new(100); // 100ms timeout
+        let verifier = HonestVerifier::new(100);
         let result = HonestVerificationResult::Timeout { attempted_ms: 100 };
         let cert = verifier.generate_certificate(&result);
         

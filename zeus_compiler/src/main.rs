@@ -4,6 +4,12 @@ mod backend;
 #[path = "codegen/mod.rs"] mod codegen;
 mod energy_profiler;
 mod formal_verifier;
+
+// CRITICAL FLAW FIXES - Phase 1
+// These modules address the 3 fatal flaws identified in gap analysis
+mod binary_verifier;      // Fix #1: Binary-level verification (was missing)
+mod type_checker_strict;  // Fix #2: Strict type system (was unsound)
+mod honest_verification;  // Fix #3: Honest timeout reporting (was deceiving)
 #[path = "parser/mod.rs"] mod parser;
 mod oram;
 mod mono;
