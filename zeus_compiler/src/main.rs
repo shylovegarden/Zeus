@@ -22,6 +22,14 @@ mod provenance;
 mod llvm_ingest;
 mod wasm_codegen;
 mod translation_validator;
+mod hif;
+mod lph_weave;
+mod pts_scheduler;
+mod metamorph;
+mod live_zk;
+mod silicon_aware;
+mod enclave;
+mod swarm;
 
 use ast::Statement;
 use lexer::Lexer;
@@ -241,6 +249,110 @@ fn main() {
             match target {
                 Some(t) => cmd_agent_loop(t, max_iter),
                 None => { eprintln!("usage: zeus agent-loop <file.zs> [--max-iter=N]"); std::process::exit(1); }
+            }
+        }
+        "hif" => {
+            // Vector 11: Homomorphic Instruction Folding — branchless O(1) execution
+            let mut target: Option<&str> = None;
+            let mut json = false;
+            for arg in &args[2..] {
+                if arg == "--json" { json = true; }
+                else { target = Some(arg); }
+            }
+            match target {
+                Some(t) => cmd_hif(t, json),
+                None => { eprintln!("usage: zeus hif <file.zs> [--json]"); std::process::exit(1); }
+            }
+        }
+        "lph" => {
+            // Vector 12: Hyper-Dimensional Memory Weaving — LPH cache-line co-location
+            let mut target: Option<&str> = None;
+            let mut json = false;
+            for arg in &args[2..] {
+                if arg == "--json" { json = true; }
+                else { target = Some(arg); }
+            }
+            match target {
+                Some(t) => cmd_lph(t, json),
+                None => { eprintln!("usage: zeus lph <file.zs> [--json]"); std::process::exit(1); }
+            }
+        }
+        "pts" => {
+            // Vector 13: Predictive Tensor Scheduling — micro-MLP scheduler + prefetch
+            let mut target: Option<&str> = None;
+            let mut json = false;
+            for arg in &args[2..] {
+                if arg == "--json" { json = true; }
+                else { target = Some(arg); }
+            }
+            match target {
+                Some(t) => cmd_pts(t, json),
+                None => { eprintln!("usage: zeus pts <file.zs> [--json]"); std::process::exit(1); }
+            }
+        }
+        "metamorph" => {
+            // Vector 14: Bounded Metamorphic Polymorphism — embedded Z3-lite + RL mutator
+            let mut target: Option<&str> = None;
+            let mut json = false;
+            for arg in &args[2..] {
+                if arg == "--json" { json = true; }
+                else { target = Some(arg); }
+            }
+            match target {
+                Some(t) => cmd_metamorph(t, json),
+                None => { eprintln!("usage: zeus metamorph <file.zs> [--json]"); std::process::exit(1); }
+            }
+        }
+        "live-zk" => {
+            // Vector 15: Live ZK-SNARK Execution Exhaust — rolling hash telemetry + attestation
+            let mut target: Option<&str> = None;
+            let mut json = false;
+            for arg in &args[2..] {
+                if arg == "--json" { json = true; }
+                else { target = Some(arg); }
+            }
+            match target {
+                Some(t) => cmd_live_zk(t, json),
+                None => { eprintln!("usage: zeus live-zk <file.zs> [--json]"); std::process::exit(1); }
+            }
+        }
+        "silicon-aware" => {
+            // Vector 16: Autonomous Silicon-Aware Lowering — CPUID → MLIR dialect selection
+            let mut target: Option<&str> = None;
+            let mut json = false;
+            for arg in &args[2..] {
+                if arg == "--json" { json = true; }
+                else { target = Some(arg); }
+            }
+            match target {
+                Some(t) => cmd_silicon_aware(t, json),
+                None => { eprintln!("usage: zeus silicon-aware <file.zs> [--json]"); std::process::exit(1); }
+            }
+        }
+        "enclave" => {
+            // Vector 17: Immune System Self-Healing Enclaves — TDX/SEV-SNP + micro-reincarnation
+            let mut target: Option<&str> = None;
+            let mut json = false;
+            for arg in &args[2..] {
+                if arg == "--json" { json = true; }
+                else { target = Some(arg); }
+            }
+            match target {
+                Some(t) => cmd_enclave(t, json),
+                None => { eprintln!("usage: zeus enclave <file.zs> [--json]"); std::process::exit(1); }
+            }
+        }
+        "swarm" => {
+            // Vector 18: Distributed Proof-Carrying Swarms — Ed25519 execution exhaust attestation
+            let mut target: Option<&str> = None;
+            let mut json = false;
+            for arg in &args[2..] {
+                if arg == "--json" { json = true; }
+                else { target = Some(arg); }
+            }
+            match target {
+                Some(t) => cmd_swarm(t, json),
+                None => { eprintln!("usage: zeus swarm <file.zs> [--json]"); std::process::exit(1); }
             }
         }
         "translate-validate" => {
@@ -1019,6 +1131,14 @@ fn print_usage() {
     println!("  \x1b[32mtrust-gate\x1b[0m <file.zs>   TRUSTED/UNTRUSTED/CONDITIONAL verdict for AI-generated code intake");
     println!("  \x1b[32magent-loop\x1b[0m <file.zs>   AI agent closed-loop repair: audit\u{2192}fix\u{2192}rebuild until convergence");
     println!("  \x1b[32mtranslate-validate\x1b[0m <f> SMT equivalence check: pre-pass vs post-pass IR (Alive2 methodology)");
+    println!("  \x1b[32mhif\x1b[0m <file.zs>        Homomorphic Instruction Folding: branchless O(1) execution");
+    println!("  \x1b[32mlph\x1b[0m <file.zs>        Hyper-Dimensional Memory Weaving: LPH cache-line co-location");
+    println!("  \x1b[32mpts\x1b[0m <file.zs>        Predictive Tensor Scheduling: micro-MLP scheduler + prefetch");
+    println!("  \x1b[32mmetamorph\x1b[0m <file.zs>   Bounded Self-Mutation: embedded Z3-lite + RL mutator");
+    println!("  \x1b[32mlive-zk\x1b[0m <file.zs>      Live ZK-SNARK Execution Exhaust: rolling hash telemetry");
+    println!("  \x1b[32msilicon-aware\x1b[0m <f>    Autonomous MLIR dialect selection (CPUID→dialect)");
+    println!("  \x1b[32menclave\x1b[0m <file.zs>     Self-Healing Enclaves: TDX/SEV-SNP + micro-reincarnation");
+    println!("  \x1b[32mswarm\x1b[0m <file.zs>       Distributed Proof-Carrying Swarms: Ed25519 attestation");
     println!("  \x1b[32mlsp\x1b[0m                  Start the Language Server Protocol daemon");
 
     println!();
@@ -1749,6 +1869,271 @@ fn cmd_translate_validate(source_path: &str, json: bool) {
         matches!(v, translation_validator::TvVerdict::NotEquivalent { .. })
     });
     if has_diff { std::process::exit(1); }
+}
+
+// ─── Vector 11: Homomorphic Instruction Folding ───────────────────────────────
+fn cmd_hif(source_path: &str, json: bool) {
+    if !source_path.ends_with(".zs") {
+        eprintln!("\x1b[31m[ZEUS ERROR]\x1b[0m hif only processes .zs files: {}", source_path);
+        std::process::exit(1);
+    }
+    let input = match fs::read_to_string(source_path) {
+        Ok(s) => s,
+        Err(e) => { eprintln!("\x1b[31m[ZEUS ERROR]\x1b[0m cannot read {}: {}", source_path, e); std::process::exit(1); }
+    };
+    let lexer = Lexer::new(&input);
+    let mut parser = Parser::new(lexer);
+    let program = parser.parse_program();
+    if !parser.errors().is_empty() {
+        eprintln!("\x1b[31m[ZEUS ERROR]\x1b[0m parse errors in {}", source_path);
+        std::process::exit(1);
+    }
+    let report = hif::analyze(&program);
+    if json {
+        println!("{}", hif::report_json(&report));
+    } else {
+        println!("\n\x1b[1;36m== HIF: Homomorphic Instruction Folding ==\x1b[0m");
+        println!(" file: {}", source_path);
+        println!(" total branches eliminated: {}", report.total_branches_eliminated());
+        println!(" fully foldable functions: {}", report.fully_foldable_count());
+        for f in &report.functions {
+            let status = match f.foldability {
+                hif::HifFoldability::FullyFoldable => "\x1b[1;32mfully foldable\x1b[0m",
+                hif::HifFoldability::PartiallyFoldable { .. } => "\x1b[1;33mpartially foldable\x1b[0m",
+                hif::HifFoldability::Unfoldable { .. } => "\x1b[1;31munfoldable\x1b[0m",
+            };
+            println!("   {}: {} (if_depth={}, terms={})", f.name, status, f.if_depth, f.polynomial_terms);
+        }
+    }
+}
+
+// ─── Vector 12: Hyper-Dimensional Memory Weaving ──────────────────────────────
+fn cmd_lph(source_path: &str, json: bool) {
+    if !source_path.ends_with(".zs") {
+        eprintln!("\x1b[31m[ZEUS ERROR]\x1b[0m lph only processes .zs files: {}", source_path);
+        std::process::exit(1);
+    }
+    let input = match fs::read_to_string(source_path) {
+        Ok(s) => s,
+        Err(e) => { eprintln!("\x1b[31m[ZEUS ERROR]\x1b[0m cannot read {}: {}", source_path, e); std::process::exit(1); }
+    };
+    let lexer = Lexer::new(&input);
+    let mut parser = Parser::new(lexer);
+    let program = parser.parse_program();
+    if !parser.errors().is_empty() {
+        eprintln!("\x1b[31m[ZEUS ERROR]\x1b[0m parse errors in {}", source_path);
+        std::process::exit(1);
+    }
+    let report = lph_weave::analyze(&program);
+    if json {
+        println!("{}", lph_weave::report_json(&report));
+    } else {
+        println!("\n\x1b[1;36m== LPH: Hyper-Dimensional Memory Weaving ==\x1b[0m");
+        println!(" file: {}", source_path);
+        println!(" total vars woven: {}", report.total_vars_woven);
+        println!(" cache lines used: {}", report.cache_lines_used);
+        println!(" estimated miss reduction: {:.1}%", report.estimated_miss_reduction_pct);
+        for c in &report.clusters {
+            println!("   cluster {}: {} members, {}B, edge_weight={}", c.cluster_id, c.members.len(), c.total_bytes, c.edge_weight);
+        }
+    }
+}
+
+// ─── Vector 13: Predictive Tensor Scheduling ────────────────────────────────
+fn cmd_pts(source_path: &str, json: bool) {
+    if !source_path.ends_with(".zs") {
+        eprintln!("\x1b[31m[ZEUS ERROR]\x1b[0m pts only processes .zs files: {}", source_path);
+        std::process::exit(1);
+    }
+    let input = match fs::read_to_string(source_path) {
+        Ok(s) => s,
+        Err(e) => { eprintln!("\x1b[31m[ZEUS ERROR]\x1b[0m cannot read {}: {}", source_path, e); std::process::exit(1); }
+    };
+    let lexer = Lexer::new(&input);
+    let mut parser = Parser::new(lexer);
+    let program = parser.parse_program();
+    if !parser.errors().is_empty() {
+        eprintln!("\x1b[31m[ZEUS ERROR]\x1b[0m parse errors in {}", source_path);
+        std::process::exit(1);
+    }
+    let report = pts_scheduler::analyze(&program);
+    if json {
+        println!("{}", pts_scheduler::report_json(&report));
+    } else {
+        println!("\n\x1b[1;36m== PTS: Predictive Tensor Scheduling ==\x1b[0m");
+        println!(" file: {}", source_path);
+        println!(" fiber count: {}", report.fiber_count);
+        println!(" predicted yield points: {}", report.predicted_yield_points);
+        println!(" prefetch injections: {}", report.prefetch_injections);
+        println!(" model weight bytes: {}", report.model_weight_bytes);
+        println!(" estimated ctx switch latency: {:.2} ns", report.estimated_ctx_switch_ns);
+    }
+}
+
+// ─── Vector 14: Bounded Metamorphic Polymorphism ─────────────────────────────
+fn cmd_metamorph(source_path: &str, json: bool) {
+    if !source_path.ends_with(".zs") {
+        eprintln!("\x1b[31m[ZEUS ERROR]\x1b[0m metamorph only processes .zs files: {}", source_path);
+        std::process::exit(1);
+    }
+    let input = match fs::read_to_string(source_path) {
+        Ok(s) => s,
+        Err(e) => { eprintln!("\x1b[31m[ZEUS ERROR]\x1b[0m cannot read {}: {}", source_path, e); std::process::exit(1); }
+    };
+    let lexer = Lexer::new(&input);
+    let mut parser = Parser::new(lexer);
+    let program = parser.parse_program();
+    if !parser.errors().is_empty() {
+        eprintln!("\x1b[31m[ZEUS ERROR]\x1b[0m parse errors in {}", source_path);
+        std::process::exit(1);
+    }
+    let report = metamorph::analyze(&program);
+    if json {
+        println!("{}", metamorph::report_json(&report));
+    } else {
+        println!("\n\x1b[1;36m== Metamorph: Bounded Self-Mutation ==\x1b[0m");
+        println!(" file: {}", source_path);
+        println!(" hot loops: {}", report.hot_loops);
+        println!(" mutations proposed: {}", report.mutations_proposed);
+        println!(" mutations proved: {}", report.mutations_proved);
+        println!(" mutations rejected: {}", report.mutations_rejected);
+        for m in &report.mutations {
+            println!("   loop {}: {} ({})", m.loop_id, m.description,
+                match m.proof_status {
+                    metamorph::ProofStatus::Proved => "\x1b[1;32mproved\x1b[0m",
+                    metamorph::ProofStatus::Disproved { .. } => "\x1b[1;31mdisproved\x1b[0m",
+                    metamorph::ProofStatus::Timeout => "\x1b[1;33mtimeout\x1b[0m",
+                    metamorph::ProofStatus::Pending => "\x1b[1;36mpending\x1b[0m",
+                });
+        }
+    }
+}
+
+// ─── Vector 15: Live ZK-SNARK Execution Exhaust ───────────────────────────────
+fn cmd_live_zk(source_path: &str, json: bool) {
+    if !source_path.ends_with(".zs") {
+        eprintln!("\x1b[31m[ZEUS ERROR]\x1b[0m live-zk only processes .zs files: {}", source_path);
+        std::process::exit(1);
+    }
+    let input = match fs::read_to_string(source_path) {
+        Ok(s) => s,
+        Err(e) => { eprintln!("\x1b[31m[ZEUS ERROR]\x1b[0m cannot read {}: {}", source_path, e); std::process::exit(1); }
+    };
+    let lexer = Lexer::new(&input);
+    let mut parser = Parser::new(lexer);
+    let program = parser.parse_program();
+    if !parser.errors().is_empty() {
+        eprintln!("\x1b[31m[ZEUS ERROR]\x1b[0m parse errors in {}", source_path);
+        std::process::exit(1);
+    }
+    let report = live_zk::analyze(&program);
+    if json {
+        println!("{}", live_zk::report_json(&report));
+    } else {
+        println!("\n\x1b[1;36m== Live ZK: Cryptographic Execution Exhaust ==\x1b[0m");
+        println!(" file: {}", source_path);
+        println!(" total steps: {}", report.total_steps);
+        println!(" secret entropy bits: {}", report.secret_entropy_bits);
+        for s in &report.steps {
+            println!("   tag {}: {} ({})", s.tag, s.location, if s.is_entry { "entry" } else { "branch/loop" });
+        }
+    }
+}
+
+// ─── Vector 16: Autonomous Silicon-Aware Lowering ─────────────────────────────
+fn cmd_silicon_aware(source_path: &str, json: bool) {
+    if !source_path.ends_with(".zs") {
+        eprintln!("\x1b[31m[ZEUS ERROR]\x1b[0m silicon-aware only processes .zs files: {}", source_path);
+        std::process::exit(1);
+    }
+    let input = match fs::read_to_string(source_path) {
+        Ok(s) => s,
+        Err(e) => { eprintln!("\x1b[31m[ZEUS ERROR]\x1b[0m cannot read {}: {}", source_path, e); std::process::exit(1); }
+    };
+    let lexer = Lexer::new(&input);
+    let mut parser = Parser::new(lexer);
+    let program = parser.parse_program();
+    if !parser.errors().is_empty() {
+        eprintln!("\x1b[31m[ZEUS ERROR]\x1b[0m parse errors in {}", source_path);
+        std::process::exit(1);
+    }
+    let report = silicon_aware::analyze(&program);
+    if json {
+        println!("{}", silicon_aware::report_json(&report));
+    } else {
+        println!("\n\x1b[1;36m== Silicon-Aware: Autonomous MLIR Dialect Selection ==\x1b[0m");
+        println!(" file: {}", source_path);
+        println!(" detected silicon: {:?}", report.detected_kind);
+        println!(" total variants generated: {}", report.total_variants_generated);
+        for d in &report.decisions {
+            println!("   {}: {} (proof_passed={}, fallback_to_cpu={})", d.fn_name, d.selected_kind, d.proof_passed, d.fallback_to_cpu);
+        }
+    }
+}
+
+// ─── Vector 17: Immune System Self-Healing Enclaves ───────────────────────────
+fn cmd_enclave(source_path: &str, json: bool) {
+    if !source_path.ends_with(".zs") {
+        eprintln!("\x1b[31m[ZEUS ERROR]\x1b[0m enclave only processes .zs files: {}", source_path);
+        std::process::exit(1);
+    }
+    let input = match fs::read_to_string(source_path) {
+        Ok(s) => s,
+        Err(e) => { eprintln!("\x1b[31m[ZEUS ERROR]\x1b[0m cannot read {}: {}", source_path, e); std::process::exit(1); }
+    };
+    let lexer = Lexer::new(&input);
+    let mut parser = Parser::new(lexer);
+    let program = parser.parse_program();
+    if !parser.errors().is_empty() {
+        eprintln!("\x1b[31m[ZEUS ERROR]\x1b[0m parse errors in {}", source_path);
+        std::process::exit(1);
+    }
+    let report = enclave::analyze(&program);
+    if json {
+        println!("{}", enclave::report_json(&report));
+    } else {
+        println!("\n\x1b[1;36m== Enclave: Self-Healing Immune System ==\x1b[0m");
+        println!(" file: {}", source_path);
+        println!(" total arenas: {}", report.total_arenas);
+        println!(" encrypted arenas: {}", report.encrypted_arenas);
+        println!(" total faults: {}", report.total_faults);
+        println!(" total reincarnations: {}", report.total_reincarnations);
+        for a in &report.arenas {
+            println!("   arena {}: encrypted={}, faults={}, reincarnations={}", a.arena_id, a.is_encrypted, a.fault_count, a.reincarnation_count);
+        }
+    }
+}
+
+// ─── Vector 18: Distributed Proof-Carrying Swarms ───────────────────────────────
+fn cmd_swarm(source_path: &str, json: bool) {
+    if !source_path.ends_with(".zs") {
+        eprintln!("\x1b[31m[ZEUS ERROR]\x1b[0m swarm only processes .zs files: {}", source_path);
+        std::process::exit(1);
+    }
+    let input = match fs::read_to_string(source_path) {
+        Ok(s) => s,
+        Err(e) => { eprintln!("\x1b[31m[ZEUS ERROR]\x1b[0m cannot read {}: {}", source_path, e); std::process::exit(1); }
+    };
+    let lexer = Lexer::new(&input);
+    let mut parser = Parser::new(lexer);
+    let program = parser.parse_program();
+    if !parser.errors().is_empty() {
+        eprintln!("\x1b[31m[ZEUS ERROR]\x1b[0m parse errors in {}", source_path);
+        std::process::exit(1);
+    }
+    let report = swarm::analyze(&program);
+    if json {
+        println!("{}", swarm::report_json(&report));
+    } else {
+        println!("\n\x1b[1;36m== Swarm: Distributed Proof-Carrying Mesh ==\x1b[0m");
+        println!(" file: {}", source_path);
+        println!(" total nodes: {}", report.total_nodes);
+        println!(" total RPCs: {}", report.total_rpcs);
+        println!(" rejected RPCs: {}", report.rejected_rpcs);
+        for n in &report.nodes {
+            println!("   node {}: seq={}, accepted={}, rejected={}", n.node_id, n.sequence, n.rpcs_accepted, n.rpcs_rejected);
+        }
+    }
 }
 
 /// Recursively find all .zs files under a root directory.
