@@ -486,6 +486,53 @@ fn main() {
                 None => { eprintln!("usage: zeus audit <file.zs|file.ll> [--json] [--sarif [file]] [--strict]"); std::process::exit(1); }
             }
         }
+        // REVOLUTIONARY FEATURE: AI Code Verification Gateway
+        "trust-gate" => {
+            let mut target: Option<&str> = None;
+            let mut json_out = false;
+            for arg in &args[2..] {
+                if arg == "--json" { json_out = true; }
+                else { target = Some(arg); }
+            }
+            match target {
+                Some(t) => cmd_trust_gate_ai(t, json_out),
+                None => { eprintln!("usage: zeus trust-gate <file.zs> [--json]"); std::process::exit(1); }
+            }
+        }
+        // REVOLUTIONARY FEATURE: Medical Device Certification
+        "medical" => {
+            let mut target: Option<&str> = None;
+            let mut device_class = DeviceClass::ClassII; // Default to Class II
+            for arg in &args[2..] {
+                if arg == "--class=1" { device_class = DeviceClass::ClassI; }
+                else if arg == "--class=2" { device_class = DeviceClass::ClassII; }
+                else if arg == "--class=3" { device_class = DeviceClass::ClassIII; }
+                else { target = Some(arg); }
+            }
+            match target {
+                Some(t) => cmd_build_medical(t, device_class),
+                None => { eprintln!("usage: zeus medical <file.zs> [--class=1|2|3]"); std::process::exit(1); }
+            }
+        }
+        // REVOLUTIONARY FEATURE: Blockchain Smart Contract Backend
+        "blockchain" => {
+            let mut target: Option<&str> = None;
+            let mut bc_target = BlockchainTarget::EVM; // Default to EVM
+            let mut gas_limit: u64 = 100000; // Default gas limit
+            for arg in &args[2..] {
+                if arg == "--target=evm" { bc_target = BlockchainTarget::EVM; }
+                else if arg == "--target=solana" { bc_target = BlockchainTarget::Solana; }
+                else if arg == "--target=cosmos" { bc_target = BlockchainTarget::Cosmos; }
+                else if arg.starts_with("--gas-limit=") { 
+                    gas_limit = arg.trim_start_matches("--gas-limit=").parse().unwrap_or(100000);
+                }
+                else { target = Some(arg); }
+            }
+            match target {
+                Some(t) => cmd_build_blockchain(t, bc_target, gas_limit),
+                None => { eprintln!("usage: zeus blockchain <file.zs> [--target=evm|solana|cosmos] [--gas-limit=N]"); std::process::exit(1); }
+            }
+        }
         _ => {
             // Legacy fallback for `zeus_compiler file.zs`
             if command.ends_with(".zs") {
