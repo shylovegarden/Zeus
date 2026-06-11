@@ -1,0 +1,38 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: zeus-cloud-api
+  namespace: zeus
+spec:
+  selector:
+    app: zeus-cloud-api
+  ports:
+  - name: http
+    port: 80
+    targetPort: 8080
+  type: ClusterIP
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: zeus-cloud-ingress
+  namespace: zeus
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    cert-manager.io/cluster-issuer: "letsencrypt"
+spec:
+  tls:
+  - hosts:
+    - api.zeus-lang.org
+    secretName: zeus-tls
+  rules:
+  - host: api.zeus-lang.org
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: zeus-cloud-api
+            port:
+              number: 80
