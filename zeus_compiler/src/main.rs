@@ -10,6 +10,13 @@ mod formal_verifier;
 mod binary_verifier;      // Fix #1: Binary-level verification (was missing)
 mod type_checker_strict;  // Fix #2: Strict type system (was unsound)
 mod honest_verification;  // Fix #3: Honest timeout reporting (was deceiving)
+mod critical_fixes_integration; // Unified integration of all 3 fixes
+
+// REVOLUTIONARY FEATURES - Phase 2
+// These make Zeus the go-to platform for verified computing
+mod ai_verification;      // AI code verification gateway (THE killer feature)
+mod medical_certification; // FDA Class III medical device certification
+mod blockchain_backend;    // Blockchain smart contract backend (EVM, Solana)
 #[path = "parser/mod.rs"] mod parser;
 mod oram;
 mod mono;
@@ -47,6 +54,18 @@ use formal_verifier::FormalVerifier;
 use codegen::CCodegen;
 use mlir_codegen::MlirCodegen;
 use formatter::Formatter;
+
+// CRITICAL FLAW FIXES - Imports
+use critical_fixes_integration::{apply_critical_flaws_check, print_critical_flaws_report, CriticalFlawsCheckResult};
+use honest_verification::{HonestVerifier, HonestVerificationResult};
+use binary_verifier::BinaryVerifier;
+use type_checker_strict::StrictTypeChecker;
+
+// REVOLUTIONARY FEATURES - Imports
+use ai_verification::{AIVerificationGateway, TrustGateVerdict, cmd_trust_gate_ai};
+use medical_certification::{MedicalCertification, DeviceClass, cmd_build_medical};
+use blockchain_backend::{BlockchainBackend, BlockchainTarget, cmd_build_blockchain};
+
 use std::env;
 use std::fs;
 use std::path::Path;
@@ -1540,6 +1559,37 @@ fn build_project(source_path: &str, run_after: bool, mlir_mode: bool, cross_targ
             Ok(s) if s.success() => {
                 let d_clang = t_clang.elapsed();
                 println!(" \x1b[35m� Native Clang Compilation\x1b[0m               [ \x1b[1;37m{:>6.2}ms\x1b[0m ] [ \x1b[32m██████████\x1b[0m ] 100%", d_clang.as_micros() as f64 / 1000.0);
+                
+                // CRITICAL FLAW FIX #1: Binary-level verification
+                // Verify the compiled binary has no timing leaks introduced by optimizer
+                if has_main || !has_funcs {
+                    let binary_path = std::path::Path::new(&base_name);
+                    if binary_path.exists() {
+                        let t_bin_verify = Instant::now();
+                        let mut verifier = BinaryVerifier::new();
+                        
+                        match verifier.verify_constant_time(binary_path) {
+                            binary_verifier::BinaryVerificationResult::ConstantTime => {
+                                let d_verify = t_bin_verify.elapsed();
+                                println!(" Binary Verification: PASS");
+                                std::env::set_var("ZEUS_BINARY_VERIFIED", "true");
+                            }
+                            binary_verifier::BinaryVerificationResult::TimingLeaks(leaks) => {
+                                eprintln!("\n[ZEUS BINARY VERIFICATION FAILED]");
+                                eprintln!("The optimizer introduced timing leaks:");
+                                for leak in &leaks {
+                                    eprintln!("  - Address {:x}: {} (tainted by {})", 
+                                        leak.address, leak.instruction, leak.tainted_by);
+                                }
+                                std::env::set_var("ZEUS_BINARY_VERIFIED", "false");
+                            }
+                            binary_verifier::BinaryVerificationResult::Failed(e) => {
+                                eprintln!("\n[ZEUS WARNING] Binary verification failed: {}", e);
+                                std::env::set_var("ZEUS_BINARY_VERIFIED", "false");
+                            }
+                        }
+                    }
+                }
             }
             Ok(_) => { eprintln!("\n\x1b[31m[ZEUS ERROR]\x1b[0m Clang Compilation Failed."); std::process::exit(1); }
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
