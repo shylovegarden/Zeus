@@ -961,9 +961,21 @@ fn cmd_audit(source_path: &str, sarif: bool, sarif_path: Option<String>, strict:
         let proved_det = zir.per_fn.iter().all(|f| f.deterministic);
         let proved_bnd = bounds.fns.iter().all(|f| f.wcet.is_some());
         let lang_pos = language_positioning_json(proved_ct, proved_bnd, proved_det);
-        println!("{{\"audit\":\"v2\",\"file\":\"{}\",\"trust_gate_verdict\":\"{}\",\"ai_intake_safe\":{},\"language_positioning\":{},\"functions\":[{}],\"findings\":[{}],\"findings_structured\":[{}]}}",
+        // V11–V18 vector reports
+        let hif_report = hif::analyze(&program);
+        let lph_report = lph_weave::analyze(&program);
+        let pts_report = pts_scheduler::analyze(&program);
+        let metamorph_report = metamorph::analyze(&program);
+        let live_zk_report = live_zk::analyze(&program);
+        let silicon_aware_report = silicon_aware::analyze(&program);
+        let enclave_report = enclave::analyze(&program);
+        let swarm_report = swarm::analyze(&program);
+        println!("{{\"audit\":\"v2\",\"file\":\"{}\",\"trust_gate_verdict\":\"{}\",\"ai_intake_safe\":{},\"language_positioning\":{},\"functions\":[{}],\"findings\":[{}],\"findings_structured\":[{}],\"vectors\":{{\"hif\":{},\"lph\":{},\"pts\":{},\"metamorph\":{},\"live_zk\":{},\"silicon_aware\":{},\"enclave\":{},\"swarm\":{}}}}}",
             json_escape(source_path), tg_verdict, ai_safe, lang_pos,
-            fns_json.join(","), findings_json.join(","), structured_json.join(","));
+            fns_json.join(","), findings_json.join(","), structured_json.join(","),
+            hif::report_json(&hif_report), lph_weave::report_json(&lph_report), pts_scheduler::report_json(&pts_report),
+            metamorph::report_json(&metamorph_report), live_zk::report_json(&live_zk_report), silicon_aware::report_json(&silicon_aware_report),
+            enclave::report_json(&enclave_report), swarm::report_json(&swarm_report));
         audit_exit(any_not_proven, any_undecidable, strict);
     }
 
