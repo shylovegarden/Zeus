@@ -1,0 +1,13 @@
+{
+  "zeus_certificate":"v1",
+  "source":"/Users/shy/Developer/ZEUS/token_validator.zs",
+  "source_sha256":"a66940c2c704a9b94936c9512d707d8d51cf9dfefda3a36177e6d0c76c9741c6",
+  "binary_sha256":"37ab5b25843ef11b679d56ddd27d3815b4b9e36c0d2c922bd6151834e40ce821",
+  "zero_heap":true,
+  "ffi_unaudited":false,
+  "functions":[
+    {"name":"main","reproducible":true,"constant_time":true,"wcet_steps":81,"stack_bytes":128,"ffi_unaudited":false}
+  ],
+  "signature":"2b501255e8ba60fac01c49f65e9a662b574f40aada6f0c121ce40705dc4dcd3bdbaeaf84177cf0a7968f964c3ea9e8a88d4bc67a8095153f2793165c44d45100",
+  "pubkey":"0fb2d04ef344666b16a24c2f3c21daea89d8af5c919d7abfe71ee72c5c8125ff"
+}

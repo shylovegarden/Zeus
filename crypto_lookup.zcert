@@ -1,0 +1,13 @@
+{
+  "zeus_certificate":"v1",
+  "source":"/Users/shy/Developer/ZEUS/crypto_lookup.zs",
+  "source_sha256":"d01e46de49c2ab6f21c6cd401a54c1e4239796d9a242c020a6b9edc846de4a6f",
+  "binary_sha256":"280a17fa62c79aabe7f24b6f18a7091d598a3a1fdd761ed18d86406c2f9f82f0",
+  "zero_heap":true,
+  "ffi_unaudited":false,
+  "functions":[
+    {"name":"main","reproducible":true,"constant_time":true,"wcet_steps":27,"stack_bytes":144,"ffi_unaudited":false}
+  ],
+  "signature":"3921297989abb7b2e2326d6a2f42652dff08f67060b39a1f137674865fec624ade9e4a3dcda1abc7b202d7859e997d531054ff96cf4b9e7471a27564e8d21305",
+  "pubkey":"0fb2d04ef344666b16a24c2f3c21daea89d8af5c919d7abfe71ee72c5c8125ff"
+}
