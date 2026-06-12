@@ -61,6 +61,17 @@ const RECOGNIZED: &[&str] = &[
 ];
 const TERMINATORS: &[&str] = &["ret","br","switch","unreachable","indirectbr"];
 
+// Heap allocation functions (C and C++)
+const HEAP_FUNCS: &[&str] = &[
+    "malloc", "free", "calloc", "realloc",
+    "_Znwm",      // operator new
+    "_ZdlPv",     // operator delete
+    "_Znam",      // operator new[]
+    "_ZdaPv",     // operator delete[]
+    "aligned_alloc",
+    "posix_memalign",
+];
+
 struct Inst {
     block: usize,
     dst: Option<String>,
@@ -261,6 +272,15 @@ fn run(f: &Func, seed: &dyn Fn(usize) -> Origins, summaries: &HashMap<String, Su
                     let (callee, args) = parse_call(&inst.raw);
                     let arg_orig: Vec<Origins> = args.iter().map(|a| a.as_ref()
                         .and_then(|n| value.get(n)).cloned().unwrap_or_default()).collect();
+                    
+                    // LLVM-003: Detect heap allocation functions
+                    if let Some(c) = &callee {
+                        if HEAP_FUNCS.contains(&c.as_str()) {
+                            findings.push(format!("HEAP_ALLOCATION: {} called in function {}", c, f.name));
+                            undecidable = true; // Heap allocations break zero-heap guarantees
+                        }
+                    }
+                    
                     match callee.as_ref().and_then(|c| summaries.get(c)) {
                         Some(sum) => {
                             o.clear();
