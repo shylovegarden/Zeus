@@ -1,0 +1,240 @@
+// Zero-Heap Collections for Zeus
+// Fixed-size, stack-allocated collections with no heap allocation
+
+// Bounded Vector - fixed capacity, stack-allocated
+struct BoundedVector<T, const N: u64> {
+    data: [T; N]
+    len: u64
+}
+
+impl<T, const N: u64> BoundedVector<T, N> {
+    fn new() -> BoundedVector<T, N> {
+        BoundedVector { data: [0; N], len: 0 }
+    }
+    
+    fn push(&mut self, item: T) -> bool {
+        if self.len < N {
+            self.data[self.len] = item;
+            self.len = self.len + 1;
+            true
+        } else {
+            false // Vector full
+        }
+    }
+    
+    fn pop(&mut self) -> Option<T> {
+        if self.len > 0 {
+            self.len = self.len - 1;
+            Some(self.data[self.len])
+        } else {
+            None
+        }
+    }
+    
+    fn get(&self, index: u64) -> Option<T> {
+        if index < self.len {
+            Some(self.data[index])
+        } else {
+            None
+        }
+    }
+    
+    fn len(&self) -> u64 {
+        self.len
+    }
+    
+    fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+    
+    fn is_full(&self) -> bool {
+        self.len == N
+    }
+}
+
+// Ring Buffer - fixed capacity, circular buffer
+struct RingBuffer<T, const N: u64> {
+    data: [T; N]
+    head: u64
+    tail: u64
+    count: u64
+}
+
+impl<T, const N: u64> RingBuffer<T, N> {
+    fn new() -> RingBuffer<T, N> {
+        RingBuffer { data: [0; N], head: 0, tail: 0, count: 0 }
+    }
+    
+    fn enqueue(&mut self, item: T) -> bool {
+        if self.count < N {
+            self.data[self.tail] = item;
+            self.tail = (self.tail + 1) % N;
+            self.count = self.count + 1;
+            true
+        } else {
+            false // Buffer full
+        }
+    }
+    
+    fn dequeue(&mut self) -> Option<T> {
+        if self.count > 0 {
+            let item = self.data[self.head];
+            self.head = (self.head + 1) % N;
+            self.count = self.count - 1;
+            Some(item)
+        } else {
+            None
+        }
+    }
+    
+    fn peek(&self) -> Option<T> {
+        if self.count > 0 {
+            Some(self.data[self.head])
+        } else {
+            None
+        }
+    }
+    
+    fn len(&self) -> u64 {
+        self.count
+    }
+    
+    fn is_empty(&self) -> bool {
+        self.count == 0
+    }
+    
+    fn is_full(&self) -> bool {
+        self.count == N
+    }
+}
+
+// Fixed-Size Stack
+struct FixedStack<T, const N: u64> {
+    data: [T; N]
+    top: u64
+}
+
+impl<T, const N: u64> FixedStack<T, N> {
+    fn new() -> FixedStack<T, N> {
+        FixedStack { data: [0; N], top: 0 }
+    }
+    
+    fn push(&mut self, item: T) -> bool {
+        if self.top < N {
+            self.data[self.top] = item;
+            self.top = self.top + 1;
+            true
+        } else {
+            false // Stack overflow
+        }
+    }
+    
+    fn pop(&mut self) -> Option<T> {
+        if self.top > 0 {
+            self.top = self.top - 1;
+            Some(self.data[self.top])
+        } else {
+            None
+        }
+    }
+    
+    fn peek(&self) -> Option<T> {
+        if self.top > 0 {
+            Some(self.data[self.top - 1])
+        } else {
+            None
+        }
+    }
+    
+    fn len(&self) -> u64 {
+        self.top
+    }
+    
+    fn is_empty(&self) -> bool {
+        self.top == 0
+    }
+    
+    fn is_full(&self) -> bool {
+        self.top == N
+    }
+}
+
+// Fixed-Size Queue (array-based)
+struct FixedQueue<T, const N: u64> {
+    data: [T; N]
+    front: u64
+    rear: u64
+    size: u64
+}
+
+impl<T, const N: u64> FixedQueue<T, N> {
+    fn new() -> FixedQueue<T, N> {
+        FixedQueue { data: [0; N], front: 0, rear: 0, size: 0 }
+    }
+    
+    fn enqueue(&mut self, item: T) -> bool {
+        if self.size < N {
+            self.data[self.rear] = item;
+            self.rear = (self.rear + 1) % N;
+            self.size = self.size + 1;
+            true
+        } else {
+            false // Queue full
+        }
+    }
+    
+    fn dequeue(&mut self) -> Option<T> {
+        if self.size > 0 {
+            let item = self.data[self.front];
+            self.front = (self.front + 1) % N;
+            self.size = self.size - 1;
+            Some(item)
+        } else {
+            None
+        }
+    }
+    
+    fn front(&self) -> Option<T> {
+        if self.size > 0 {
+            Some(self.data[self.front])
+        } else {
+            None
+        }
+    }
+    
+    fn len(&self) -> u64 {
+        self.size
+    }
+    
+    fn is_empty(&self) -> bool {
+        self.size == 0
+    }
+    
+    fn is_full(&self) -> bool {
+        self.size == N
+    }
+}
+
+// Example usage
+fn main() {
+    // Bounded Vector
+    let mut vec: BoundedVector<u64, 10> = BoundedVector::new();
+    vec.push(1);
+    vec.push(2);
+    vec.push(3);
+    
+    // Ring Buffer
+    let mut buf: RingBuffer<u64, 5> = RingBuffer::new();
+    buf.enqueue(10);
+    buf.enqueue(20);
+    
+    // Fixed Stack
+    let mut stack: FixedStack<u64, 8> = FixedStack::new();
+    stack.push(100);
+    stack.push(200);
+    
+    // Fixed Queue
+    let mut queue: FixedQueue<u64, 6> = FixedQueue::new();
+    queue.enqueue(1000);
+    queue.enqueue(2000);
+}
