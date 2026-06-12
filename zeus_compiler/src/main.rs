@@ -490,13 +490,24 @@ fn main() {
         "trust-gate" => {
             let mut target: Option<&str> = None;
             let mut json_out = false;
+            let mut llvm_ir = false;
             for arg in &args[2..] {
                 if arg == "--json" { json_out = true; }
+                else if arg == "--llvm-ir" { llvm_ir = true; }
                 else { target = Some(arg); }
             }
             match target {
-                Some(t) => cmd_trust_gate_ai(t, json_out),
-                None => { eprintln!("usage: zeus trust-gate <file.zs> [--json]"); std::process::exit(1); }
+                Some(t) => {
+                    if llvm_ir {
+                        // LLVM-IR verification (Trojan Horse pillar)
+                        use llvm_ingest::audit_ll;
+                        audit_ll(t, json_out, None, false);
+                    } else {
+                        // Zeus source verification
+                        cmd_trust_gate_ai(t, json_out);
+                    }
+                }
+                None => { eprintln!("usage: zeus trust-gate <file.zs|file.ll> [--json] [--llvm-ir]"); std::process::exit(1); }
             }
         }
         // REVOLUTIONARY FEATURE: Medical Device Certification
