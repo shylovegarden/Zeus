@@ -1,0 +1,38 @@
+// Zeus Crypto Library
+// Zero-heap cryptographic primitives
+
+// Constant-time comparison
+fn constant_time_eq(a: u64, b: u64) -> bool {
+    let diff = a ^ b;
+    diff == 0
+}
+
+// Simple XOR cipher (for demonstration)
+fn xor_cipher(data: u64, key: u64) -> u64 {
+    data ^ key
+}
+
+// Zero-heap buffer (fixed-size array)
+struct Buffer {
+    data: [u64; 16]
+}
+
+impl Buffer {
+    fn new() -> Buffer {
+        Buffer { data: [0; 16] }
+    }
+    
+    fn set(&mut self, index: u64, value: u64) {
+        if index < 16 {
+            self.data[index] = value;
+        }
+    }
+    
+    fn get(&self, index: u64) -> u64 {
+        if index < 16 {
+            self.data[index]
+        } else {
+            0
+        }
+    }
+}

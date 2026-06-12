@@ -1,0 +1,11 @@
+[package]
+name = "zeus-crypto"
+version = "0.1.0"
+description = "Cryptographic primitives for Zeus"
+authors = ["Zeus Team <team@zeus.dev>"]
+zeus_version = ">=0.1.0"
+license = "MIT"
+
+[lib]
+name = "crypto"
+path = "src/lib.zeus"
