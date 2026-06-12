@@ -2,6 +2,10 @@
 use crate::ast::{Program, Statement};
 use crate::lexer::{Lexer, Token};
 
+/// Security limits for DoS prevention
+pub const MAX_RECURSION_DEPTH: usize = 1000;
+pub const MAX_AST_NODES: usize = 100_000;
+
 pub struct Parser<'a> {
     pub(crate) lexer: Lexer<'a>,
     pub(crate) current_token: Token,
@@ -20,6 +24,8 @@ pub struct Parser<'a> {
     /// Monotonic count of tokens consumed; used as a forward-progress marker so
     /// the top-level parse loop can never spin without consuming input.
     pub(crate) advance_count: usize,
+    /// Monotonic count of AST nodes created; used to prevent DoS via massive ASTs.
+    pub(crate) ast_node_count: usize,
 }
 
 
@@ -49,6 +55,7 @@ impl<'a> Parser<'a> {
             current_col,
             peek_col,
             advance_count: 0,
+            ast_node_count: 0,
         }
     }
 
@@ -98,12 +105,23 @@ impl<'a> Parser<'a> {
         };
 
         while self.current_token != Token::Eof {
+            // Security: Check AST node count limit to prevent DoS
+            if self.ast_node_count >= MAX_AST_NODES {
+                self.errors.push(format!(
+                    "AST node count exceeds maximum of {} (DoS protection)",
+                    MAX_AST_NODES
+                ));
+                break;
+            }
+
             let current_line = self.lexer.line_number;
             program.statements.push(Statement::LineDirective(current_line));
+            self.ast_node_count += 1;
 
             let progress_before = self.advance_count;
             let prev_token = self.current_token.clone();
             if let Some(stmt) = self.parse_statement() {
+                self.ast_node_count += 1;
                 program.statements.push(stmt);
             }
             self.advance_after_statement(&prev_token);

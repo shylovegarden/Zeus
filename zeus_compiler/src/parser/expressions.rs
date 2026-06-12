@@ -12,8 +12,11 @@ impl<'a> Parser<'a> {
 
     pub(crate) fn parse_expression(&mut self) -> Option<Expression> {
         self.expression_depth += 1;
-        if self.expression_depth > 128 {
-            self.errors.push("AST Depth Limit Exceeded".to_string());
+        if self.expression_depth > super::MAX_RECURSION_DEPTH {
+            self.errors.push(format!(
+                "AST depth exceeds maximum of {} (DoS protection)",
+                super::MAX_RECURSION_DEPTH
+            ));
             self.expression_depth -= 1;
             return None;
         }

@@ -1,3 +1,7 @@
+/// Security limits for DoS prevention
+pub const MAX_INPUT_SIZE: usize = 10 * 1024 * 1024; // 10MB
+pub const MAX_LINE_LENGTH: usize = 10_000; // 10,000 characters per line
+
 /// Source position: 1-based line and column numbers.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct Span {
@@ -128,6 +132,11 @@ pub struct Lexer<'a> {
 
 impl<'a> Lexer<'a> {
     pub fn new(input: &'a str) -> Self {
+        // Security: Check input size limit to prevent DoS
+        if input.len() > MAX_INPUT_SIZE {
+            panic!("Input exceeds maximum size of {} bytes (DoS protection)", MAX_INPUT_SIZE);
+        }
+
         let mut lexer = Lexer {
             input,
             chars: input.chars().collect(),
@@ -151,6 +160,13 @@ impl<'a> Lexer<'a> {
 
     fn read_char(&mut self) {
         if let Some('\n') = self.ch {
+            // Security: Check line length limit to prevent DoS
+            if self.col > MAX_LINE_LENGTH {
+                self.errors.push(format!(
+                    "line {}: exceeds maximum line length of {} characters (DoS protection)",
+                    self.line_number, MAX_LINE_LENGTH
+                ));
+            }
             self.line_number += 1;
             self.col = 1;
         } else {
