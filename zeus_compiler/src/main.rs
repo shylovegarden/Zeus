@@ -39,6 +39,7 @@ mod swarm;
 mod policy;
 mod proof_viz;
 mod diagnostics;
+mod fuzzer;
 
 use ast::Statement;
 use lexer::Lexer;
@@ -89,6 +90,11 @@ fn main() {
     let command = &args[1];
 
     match command.as_str() {
+        "fuzz" => {
+            let iterations = args.get(2).and_then(|s| s.parse().ok()).unwrap_or(1000);
+            let fuzzer = fuzzer::AnalyzerFuzzer::new(iterations);
+            fuzzer.run();
+        }
         "init" => {
             if args.len() < 3 {
                 eprintln!("\x1b[31m[ZEUS ERROR]\x1b[0m Usage: zeus init <project_name>");

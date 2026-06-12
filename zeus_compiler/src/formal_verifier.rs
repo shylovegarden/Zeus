@@ -347,7 +347,7 @@ impl FormalVerifier {
         }
     }
 
-    fn prove_assertion(&mut self, expr: &Expression) -> Result<(), String> {
+    pub fn prove_assertion(&mut self, expr: &Expression) -> Result<(), String> {
         if let Expression::Infix { left, operator, right } = expr {
             if operator == "And" {
                 self.prove_assertion(left)?;

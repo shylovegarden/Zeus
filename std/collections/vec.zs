@@ -27,13 +27,13 @@ pub fn vec_push(v: &mut BoundedVec, val: i32) -> bool {
     return false; // Capacity exceeded
 }
 
-pub fn vec_pop(v: &mut BoundedVec) -> i32 {
+pub fn vec_pop(v: &mut BoundedVec) -> Result<i32, i32> {
     if v.len > 0 {
         v.len = v.len - 1;
         let i = v.len;
-        return v.data[i];
+        return Ok(v.data[i]);
     }
-    return -1; // Error code (since we lack Option types yet)
+    return Err(1); // Error code 1 for empty
 }
 
 // Z3 Formal Verification Block
@@ -47,6 +47,6 @@ proof {
     assert(vec.data[0] == 42);
 
     let popped = vec_pop(&mut vec);
-    assert(popped == 42);
+    assert(unwrap(popped) == 42);
     assert(vec.len == 0);
 }

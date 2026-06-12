@@ -592,6 +592,26 @@ impl SemanticAnalyzer {
             Expression::IndexAccess { base, index } => {
                 self.analyze_expression(base)?;
                 self.analyze_expression(index)?;
+                let base_ty = self.infer_type(base);
+                if let Type::Array(_, size_expr) = base_ty {
+                    let mut fv = crate::formal_verifier::FormalVerifier::new();
+                    let geq0 = Expression::Infix {
+                        left: index.clone(),
+                        operator: "GreaterEqual".to_string(),
+                        right: Box::new(Expression::Number(0.0)),
+                    };
+                    if let Err(e) = fv.prove_assertion(&geq0) {
+                        return Err(format!("Z3 Array Bounds Violation: cannot prove index >= 0: {}", e));
+                    }
+                    let lt_size = Expression::Infix {
+                        left: index.clone(),
+                        operator: "LessThan".to_string(),
+                        right: size_expr.clone(),
+                    };
+                    if let Err(e) = fv.prove_assertion(&lt_size) {
+                        return Err(format!("Z3 Array Bounds Violation: cannot prove index < size: {}", e));
+                    }
+                }
             }
             Expression::OramAccess { base, index, .. } => {
                 self.analyze_expression(base)?;

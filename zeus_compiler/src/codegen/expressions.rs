@@ -286,18 +286,20 @@ impl CCodegen {
                         crate::ast::MatchPattern::Variant { enum_name, variant } => {
                             format!("__scrut.tag == {}__{}", enum_name, variant)
                         }
-                        crate::ast::MatchPattern::VariantTuple { enum_name, variant, bindings } => {
-                            let c = format!("__scrut.tag == {}__{}", enum_name, variant);
-                            for (j, b) in bindings.iter().enumerate() {
-                                let _ = b;
-                                let _ = j;
-                            }
-                            c
+                        crate::ast::MatchPattern::VariantTuple { enum_name, variant, bindings: _ } => {
+                            format!("__scrut.tag == {}__{}", enum_name, variant)
                         }
                         crate::ast::MatchPattern::Wildcard => "1".to_string(),
                         crate::ast::MatchPattern::Literal(n) => format!("__scrut == {}", n),
                     };
-                    let body_stmts: Vec<String> = arm.body.iter().map(|s| self.generate_statement(s, 0)).collect();
+                    let mut body_stmts: Vec<String> = arm.body.iter().map(|s| self.generate_statement(s, 0)).collect();
+                    if let crate::ast::MatchPattern::VariantTuple { variant, bindings, .. } = &arm.pattern {
+                        for (j, b) in bindings.iter().enumerate().rev() {
+                            if b != "_" {
+                                body_stmts.insert(0, format!("__auto_type {} = __scrut.data.{}._{}; ", b, variant, j));
+                            }
+                        }
+                    }
                     let body = body_stmts.join(" ");
                     if i == 0 { s.push_str(&format!("if ({}) {{ {} }}", cond, body)); }
                     else if matches!(arm.pattern, crate::ast::MatchPattern::Wildcard) {
