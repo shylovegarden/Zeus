@@ -58,6 +58,7 @@ pub enum Statement {
         name: String,
         body: Vec<Statement>,
     },
+    SecureWipe(String),
     For {
         iterator: String,
         start: Expression,
@@ -149,6 +150,8 @@ pub enum Expression {
     Identifier(String),
     Number(f64),
     StringLiteral(String),
+    HomomorphicGate(Box<Expression>),
+    HardwareEntanglement(String),
     
     Infix {
         left: Box<Expression>,

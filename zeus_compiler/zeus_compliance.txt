@@ -1,0 +1,16 @@
+ZEUS IEC 62304 / FDA 510(k) COMPLIANCE REPORT
+=============================================
+
+Overall verdict: COMPLIANT
+
+IEC 62304 Class C Checklist:
+  [PASS] Req 1: Zero dynamic memory allocation
+  [PASS] Req 2: All functions have provable WCET
+  [PASS] Req 3: No secret-dependent timing channels
+  [PASS] Req 4: All functions deterministic
+  [PASS] Req 5: No unauditable FFI calls
+
+Analysed: 2 function(s), 0 secret value(s)
+
+This report may be attached to an FDA 510(k) software safety submission
+as evidence of IEC 62304 Class C compliance for the analysed module.

@@ -1,0 +1,26 @@
+{
+  "zeus_compliance_report": "v1",
+  "standard": "IEC 62304 Class C / FDA 510(k) SW Safety",
+  "generated_at_unix": 1781229156,
+  "compliant": true,
+  "checks": {
+    "zero_heap": true,
+    "all_functions_wcet_bounded": true,
+    "all_functions_constant_time": true,
+    "all_functions_deterministic": true,
+    "no_unaudited_ffi": true
+  },
+  "totals": {
+    "functions": 2,
+    "secret_values": 0,
+    "timing_leaks": 0,
+    "wcet_violations": 0
+  },
+  "functions": [
+    {"name":"check_width_safety","constant_time":true,"deterministic":true,"wcet_steps":6,"declared_wcet":null,"stack_bytes":80,"reaches_extern":false},
+    {"name":"main","constant_time":true,"deterministic":true,"wcet_steps":7,"declared_wcet":null,"stack_bytes":72,"reaches_extern":false}
+  ],
+  "findings": [
+
+  ]
+}

@@ -389,7 +389,7 @@ impl Formatter {
                 format!("comptime {}", self.format_expression(inner))
             }
             Expression::Prefix { operator, operand } => {
-                let op = match operator.as_str() { "Minus" => "-", "Not" => "!", _ => operator.as_str() };
+                let op = match operator.as_str() { "Minus" => "-", "Bang" => "!", _ => operator.as_str() };
                 format!("{}{}", op, self.format_expression(operand))
             }
             Expression::NvmeDmaMap { path, size } => {
