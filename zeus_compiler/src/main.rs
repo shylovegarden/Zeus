@@ -1396,13 +1396,8 @@ fn build_project(source_path: &str, run_after: bool, mlir_mode: bool, cross_targ
     let t_oram = Instant::now();
     let obfuscator = obfuscation::ObfuscationEngine::new(enable_drm);
     obfuscator.obfuscate(&mut program);
-
-    let neuro_poisoner = paradox_engine::NeuroPoisoner::new(enable_paradox);
-    neuro_poisoner.poison(&mut program);
-
-    let fhe_lowering = paradox_engine::HomomorphicLowering::new(enable_paradox);
-    fhe_lowering.lower_secrets(&mut program);
-    
+    let paradox = paradox_engine::ParadoxEngine::new(enable_paradox);
+    paradox.run_passes(&mut program);
     oram::flatten_memory_accesses(&mut program);
     let d_oram = t_oram.elapsed();
     println!(" \x1b[36m🔀 ORAM Memory Flattening Pipeline\x1b[0m     [ \x1b[1;37m{:>6.0}µs\x1b[0m ] [ \x1b[32m██████████\x1b[0m ] 100%", d_oram.as_micros());

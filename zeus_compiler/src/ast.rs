@@ -150,6 +150,7 @@ pub enum Expression {
     Number(f64),
     StringLiteral(String),
     HomomorphicGate(Box<Expression>),
+    HardwareEntanglement(String),
     
     Infix {
         left: Box<Expression>,
