@@ -40,6 +40,7 @@ mod policy;
 mod proof_viz;
 mod diagnostics;
 mod fuzzer;
+mod obfuscation;
 
 use ast::Statement;
 use lexer::Lexer;
@@ -112,8 +113,10 @@ fn main() {
             let mut arch_blueprint = None;
             let mut policy_file = None;
             let mut strict_types = false;
+            let mut enable_drm = false;
             for arg in &args[2..] {
                 if arg == "--mlir" { mlir = true; }
+                else if arg == "--enable-drm" { enable_drm = true; }
                 else if arg == "--tune" { tune = true; }
                 else if arg == "--strict-types" { strict_types = true; }
                 else if arg.starts_with("--target=") {
@@ -162,7 +165,7 @@ fn main() {
                 }
             }
             
-            build_project(target, false, mlir, cross_target, disable_adaptive, export_mutation_log, arch_blueprint, tune, strict_types);
+            build_project(target, false, mlir, cross_target, disable_adaptive, export_mutation_log, arch_blueprint, tune, strict_types, enable_drm);
         }
         "run" => {
             let mut target = "src/main.zs";
@@ -193,7 +196,7 @@ fn main() {
                 }
             }
             if required.is_empty() {
-                build_project(target, true, mlir, cross_target, disable_adaptive, export_mutation_log, None, false, false);
+                build_project(target, true, mlir, cross_target, disable_adaptive, export_mutation_log, None, false, false, false);
             } else {
                 run_with_policy(target, &required);
             }
@@ -678,7 +681,7 @@ fn write_certificate(source_path: &str, base_name: &str, zir: &zir::ZirReport, b
 
 /// `zeus cert <file>`: build and print a human-readable trust report from the certificate.
 fn cmd_cert(target: &str) {
-    build_project(target, false, false, None, false, false, None, false, false);
+    build_project(target, false, false, None, false, false, None, false, false, false);
     let base = std::path::Path::new(target).file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
     let cert = std::fs::read_to_string(format!("{}.zcert", base)).unwrap_or_default();
     if cert.is_empty() { eprintln!("no certificate produced"); std::process::exit(1); }
@@ -1092,7 +1095,7 @@ fn cmd_audit(source_path: &str, sarif: bool, sarif_path: Option<String>, strict:
 /// `zeus run <file> --require p1,p2`: build, then refuse to execute unless the
 /// certificate proves every required property.
 fn run_with_policy(target: &str, required: &[String]) {
-    build_project(target, false, false, None, false, false, None, false, false);
+    build_project(target, false, false, None, false, false, None, false, false, false);
     let base = std::path::Path::new(target).file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
     let cert_path = format!("{}.zcert", base);
 
@@ -1388,6 +1391,9 @@ fn build_project(source_path: &str, run_after: bool, mlir_mode: bool, cross_targ
     }
     
     let t_oram = Instant::now();
+    let obfuscator = obfuscation::ObfuscationEngine::new(enable_drm);
+    obfuscator.obfuscate(&mut program);
+    
     oram::flatten_memory_accesses(&mut program);
     let d_oram = t_oram.elapsed();
     println!(" \x1b[36m🔀 ORAM Memory Flattening Pipeline\x1b[0m     [ \x1b[1;37m{:>6.0}µs\x1b[0m ] [ \x1b[32m██████████\x1b[0m ] 100%", d_oram.as_micros());
@@ -1563,6 +1569,13 @@ fn build_project(source_path: &str, run_after: bool, mlir_mode: bool, cross_targ
             }
             Err(e) => { eprintln!("\n\x1b[31m[ZEUS ERROR]\x1b[0m Failed to run C compiler: {}", e); std::process::exit(1); }
         }
+    }
+
+    if enable_drm {
+        let vmp = obfuscation::vmp::VmProtector::new(true);
+        vmp.protect_binary();
+        let guard = obfuscation::runtime_guard::RuntimeGuard::new(true);
+        guard.inject_guards();
     }
 
     let total_elapsed = start_total.elapsed();
