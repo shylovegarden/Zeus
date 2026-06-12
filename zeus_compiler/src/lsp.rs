@@ -17,8 +17,8 @@ pub struct Symbol {
     /// Human-readable type string shown on hover.
     pub type_str: String,
     /// Declaration position (LSP 0-based line).
-    pub decl_line: u32,
-    pub decl_col: u32,
+    pub decl_line: u64,
+    pub decl_col: u64,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -51,7 +51,7 @@ fn type_str_inner(t: &Type) -> String {
 pub fn build_symbol_table(source: &str) -> Vec<Symbol> {
     let mut symbols: Vec<Symbol> = Vec::new();
     // Re-lex to collect token positions into a map: name -> first occurrence line/col
-    let mut token_positions: HashMap<String, (u32, u32)> = HashMap::new();
+    let mut token_positions: HashMap<String, (u64, u64)> = HashMap::new();
     {
         let mut lex = Lexer::new(source);
         loop {
@@ -59,14 +59,14 @@ pub fn build_symbol_table(source: &str) -> Vec<Symbol> {
             if tok == Token::Eof { break; }
             if let Token::Identifier(ref id) = tok {
                 token_positions.entry(id.clone()).or_insert((
-                    (lex.token_line.saturating_sub(1)) as u32,
-                    (lex.token_col.saturating_sub(1)) as u32,
+                    (lex.token_line.saturating_sub(1)) as u64,
+                    (lex.token_col.saturating_sub(1)) as u64,
                 ));
             }
         }
     }
 
-    let get_pos = |name: &str| -> (u32, u32) {
+    let get_pos = |name: &str| -> (u64, u64) {
         token_positions.get(name).copied().unwrap_or((0, 0))
     };
 
@@ -82,7 +82,7 @@ pub fn build_symbol_table(source: &str) -> Vec<Symbol> {
 }
 
 fn collect_stmt_symbols<F>(stmt: &Statement, out: &mut Vec<Symbol>, get_pos: &F)
-where F: Fn(&str) -> (u32, u32)
+where F: Fn(&str) -> (u64, u64)
 {
     match stmt {
         Statement::Let { name, var_type, .. } => {
@@ -146,7 +146,7 @@ where F: Fn(&str) -> (u32, u32)
 }
 
 /// Find the identifier word at (line, col) in the source (both 0-based LSP coords).
-fn word_at(source: &str, line: u32, col: u32) -> Option<String> {
+fn word_at(source: &str, line: u64, col: u64) -> Option<String> {
     let src_line = source.lines().nth(line as usize)?;
     let col = col as usize;
     if col > src_line.len() { return None; }
@@ -236,16 +236,16 @@ pub fn run_lsp() {
             "textDocument/hover" => {
                 let id   = req["id"].clone();
                 let uri  = req["params"]["textDocument"]["uri"].as_str().unwrap_or("");
-                let line = req["params"]["position"]["line"].as_u64().unwrap_or(0) as u32;
-                let col  = req["params"]["position"]["character"].as_u64().unwrap_or(0) as u32;
+                let line = req["params"]["position"]["line"].as_u64().unwrap_or(0);
+                let col  = req["params"]["position"]["character"].as_u64().unwrap_or(0);
                 let resp = handle_hover(id, uri, line, col);
                 send_response(resp);
             }
             "textDocument/definition" => {
                 let id   = req["id"].clone();
                 let uri  = req["params"]["textDocument"]["uri"].as_str().unwrap_or("");
-                let line = req["params"]["position"]["line"].as_u64().unwrap_or(0) as u32;
-                let col  = req["params"]["position"]["character"].as_u64().unwrap_or(0) as u32;
+                let line = req["params"]["position"]["line"].as_u64().unwrap_or(0);
+                let col  = req["params"]["position"]["character"].as_u64().unwrap_or(0);
                 let resp = handle_definition(id, uri, line, col);
                 send_response(resp);
             }
@@ -260,7 +260,7 @@ pub fn run_lsp() {
     }
 }
 
-fn handle_hover(id: Value, uri: &str, line: u32, col: u32) -> Value {
+fn handle_hover(id: Value, uri: &str, line: u64, col: u64) -> Value {
     if let Some(text) = get_document(uri) {
         if let Some(word) = word_at(&text, line, col) {
             let symbols = build_symbol_table(&text);
@@ -289,7 +289,7 @@ fn handle_hover(id: Value, uri: &str, line: u32, col: u32) -> Value {
     serde_json::json!({ "jsonrpc": "2.0", "id": id, "result": null })
 }
 
-fn handle_definition(id: Value, uri: &str, line: u32, col: u32) -> Value {
+fn handle_definition(id: Value, uri: &str, line: u64, col: u64) -> Value {
     if let Some(text) = get_document(uri) {
         if let Some(word) = word_at(&text, line, col) {
             let symbols = build_symbol_table(&text);
@@ -301,7 +301,7 @@ fn handle_definition(id: Value, uri: &str, line: u32, col: u32) -> Value {
                         "uri": uri,
                         "range": {
                             "start": { "line": sym.decl_line, "character": sym.decl_col },
-                            "end":   { "line": sym.decl_line, "character": sym.decl_col + (sym.name.len() as u32) }
+                            "end":   { "line": sym.decl_line, "character": sym.decl_col + (sym.name.len() as u64) }
                         }
                     }
                 });
@@ -474,10 +474,10 @@ fn publish_diagnostics(uri: &str, text: &str) {
 }
 
 /// Parse "L:C: msg" or "line L: msg" → (0-based line, 0-based col, message) for LSP.
-fn parse_diag_lsp(e: &str) -> (u32, u32, String) {
+fn parse_diag_lsp(e: &str) -> (u64, u64, String) {
     let parts: Vec<&str> = e.splitn(3, ':').collect();
     if parts.len() == 3 {
-        if let (Ok(l), Ok(c)) = (parts[0].trim().parse::<u32>(), parts[1].trim().parse::<u32>()) {
+        if let (Ok(l), Ok(c)) = (parts[0].trim().parse::<u64>(), parts[1].trim().parse::<u64>()) {
             return (l.saturating_sub(1), c.saturating_sub(1), parts[2].trim().to_string());
         }
     }

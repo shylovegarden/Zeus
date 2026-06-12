@@ -58,6 +58,7 @@ pub enum Statement {
         name: String,
         body: Vec<Statement>,
     },
+    SecureWipe(String),
     For {
         iterator: String,
         start: Expression,

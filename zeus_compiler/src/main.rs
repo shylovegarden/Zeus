@@ -42,6 +42,7 @@ mod diagnostics;
 mod fuzzer;
 mod obfuscation;
 mod paradox_engine;
+mod secure_drop;
 
 use ast::Statement;
 use lexer::Lexer;
@@ -1398,6 +1399,10 @@ fn build_project(source_path: &str, run_after: bool, mlir_mode: bool, cross_targ
     obfuscator.obfuscate(&mut program);
     let paradox = paradox_engine::ParadoxEngine::new(enable_paradox);
     paradox.run_passes(&mut program);
+
+    let secure_drop = secure_drop::SecureDropPass::new();
+    secure_drop.inject(&mut program);
+
     oram::flatten_memory_accesses(&mut program);
     let d_oram = t_oram.elapsed();
     println!(" \x1b[36m🔀 ORAM Memory Flattening Pipeline\x1b[0m     [ \x1b[1;37m{:>6.0}µs\x1b[0m ] [ \x1b[32m██████████\x1b[0m ] 100%", d_oram.as_micros());
