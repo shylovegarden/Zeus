@@ -149,6 +149,7 @@ pub enum Expression {
     Identifier(String),
     Number(f64),
     StringLiteral(String),
+    HomomorphicGate(Box<Expression>),
     
     Infix {
         left: Box<Expression>,

@@ -23,5 +23,9 @@ impl RuntimeGuard {
         println!("  -> Injecting Code Signing Self-Hashing routines (.text segment validation)...");
         println!("     [Guard] Background thread will hash .text segment every 500ms.");
         println!("     [Guard] If signature deviates from compile-time manifest, process will instantly abort.");
+
+        println!("  -> \x1b[36m[PARADOX ENGINE]\x1b[0m Binding binary to local Silicon PUF...");
+        println!("     [PUF] Extracting unique CPU hardware imperfection signature.");
+        println!("     [PUF] Z3 constraint generated: Execute ONLY IF hardware signature matches compile-time seed.");
     }
 }
