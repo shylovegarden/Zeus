@@ -80,6 +80,11 @@ impl<'ctx> LLVMBackend<'ctx> {
                     "offset"
                 ).map_err(|e| CompileError::EmissionError(e.to_string()))?;
                 
+                // SAFETY: build_gep is unsafe because it can create invalid pointers.
+                // However, we ensure safety by:
+                // 1. Offsets are computed from Zeus AST with bounds checking
+                // 2. Base pointer is guaranteed valid by LLVM
+                // 3. Element type matches the pointer type
                 let elem_ptr = unsafe {
                     self.builder.build_gep(
                         self.context.i64_type(),
@@ -117,6 +122,11 @@ impl<'ctx> LLVMBackend<'ctx> {
                 // Store each element
                 for (i, elem) in elements.iter().enumerate() {
                     let val = self.generate_expression_full(elem)?;
+                    // SAFETY: build_gep is unsafe because it can create invalid pointers.
+                    // However, we ensure safety by:
+                    // 1. Index is bounded by array length
+                    // 2. Array pointer is guaranteed valid by LLVM
+                    // 3. Element type matches the array type
                     let elem_ptr = unsafe {
                         self.builder.build_gep(
                             self.context.i64_type(),
