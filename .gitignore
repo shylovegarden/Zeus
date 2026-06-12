@@ -51,3 +51,9 @@ build/
 # Secret architecture blueprints
 # Allow tracking of hardware blueprints
 
+
+vscode-zeus/node_modules/
+vscode-zeus/out/
+*.provenance.json
+*.zcert
+*.wat

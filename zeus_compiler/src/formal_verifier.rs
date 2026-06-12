@@ -90,17 +90,188 @@ impl FormalVerifier {
     }
 
     pub fn verify(&mut self, program: &Program, is_medical_mode: bool) -> Result<(), String> {
-        if is_medical_mode {
-            std::fs::write(
-                "medical_compliance_report.txt",
-                "ZEUS MEDICAL COMPLIANCE REPORT: IEC 62304 VERIFIED. ZERO-HEAP CONSTRAINTS SATISFIED.",
-            )
-            .map_err(|e| e.to_string())?;
-        }
+        // Run formal assertions first (Z3 / constant-fold path).
         for stmt in &program.statements {
             self.verify_statement(stmt)?;
         }
         self.flush_cache();
+
+        if is_medical_mode {
+            self.write_compliance_report(program)?;
+        }
+        Ok(())
+    }
+
+    /// Build a real IEC 62304 / FDA 510(k) compliance report from the actual
+    /// analysis results produced by this pipeline pass.
+    ///
+    /// The report is *honest*: `compliant` is only `true` when every required
+    /// property is actually proven by the existing analysis passes.
+    ///
+    /// Emits:
+    ///   `<basename>.compliance.json`  — machine-readable (for tooling / CI)
+    ///   `<basename>.compliance.txt`   — human-readable summary
+    fn write_compliance_report(&self, program: &Program) -> Result<(), String> {
+        // Run ZIR and bounds analysis on the same program to get real numbers.
+        let zir  = crate::zir::lower_and_analyze(program);
+        let bnds = crate::bounds::analyze(program);
+
+        // ── IEC 62304 Class C checklist ───────────────────────────────────────
+        // Req 1: Zero dynamic memory allocation (no malloc/free/pthread)
+        let zero_heap = zir.zero_heap;
+
+        // Req 2: All functions have a provable WCET bound
+        let all_bounded = !bnds.fns.is_empty()
+            && bnds.fns.iter().all(|f| f.wcet.is_some());
+        let wcet_violations: Vec<String> = bnds.violations.clone();
+
+        // Req 3: No secret-tainted timing channels (constant-time)
+        let all_constant_time = zir.per_fn.iter().all(|f| f.constant_time);
+        let timing_leaks: Vec<String> = zir.leaks.clone();
+
+        // Req 4: All functions provably deterministic
+        let all_deterministic = zir.per_fn.iter().all(|f| f.deterministic);
+
+        // Req 5: No opaque FFI calls that cannot be audited
+        let no_ffi_unaudited = !zir.ffi_unaudited;
+
+        // Overall compliance verdict
+        let compliant = zero_heap
+            && all_bounded
+            && all_constant_time
+            && all_deterministic
+            && no_ffi_unaudited
+            && timing_leaks.is_empty()
+            && wcet_violations.is_empty();
+
+        // ── Per-function JSON entries ─────────────────────────────────────────
+        let mut fn_entries = Vec::new();
+        for pf in &zir.per_fn {
+            let bf = bnds.fns.iter().find(|b| b.name == pf.name);
+            let wcet_str = match bf.and_then(|b| b.wcet) {
+                Some(w) => w.to_string(),
+                None    => "null".to_string(),
+            };
+            let stack = bf.map(|b| b.stack).unwrap_or(0);
+            let declared_wcet = bf.and_then(|b| b.declared_wcet)
+                .map(|w| w.to_string())
+                .unwrap_or_else(|| "null".to_string());
+            fn_entries.push(format!(
+                "    {{\"name\":\"{name}\",\"constant_time\":{ct},\"deterministic\":{det},\
+                 \"wcet_steps\":{wcet},\"declared_wcet\":{dwcet},\"stack_bytes\":{stack},\
+                 \"reaches_extern\":{ext}}}",
+                name  = pf.name,
+                ct    = pf.constant_time,
+                det   = pf.deterministic,
+                wcet  = wcet_str,
+                dwcet = declared_wcet,
+                stack = stack,
+                ext   = pf.reaches_extern,
+            ));
+        }
+
+        // ── Findings ─────────────────────────────────────────────────────────
+        let mut findings_json = Vec::new();
+        for l in &timing_leaks {
+            findings_json.push(format!("    \"{}\"", l.replace('"', "\\\"")));
+        }
+        for v in &wcet_violations {
+            findings_json.push(format!("    \"{}\"", v.replace('"', "\\\"")));
+        }
+
+        // ── Timestamp ────────────────────────────────────────────────────────
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+
+        // ── JSON report ──────────────────────────────────────────────────────
+        let json = format!(
+"{{
+  \"zeus_compliance_report\": \"v1\",
+  \"standard\": \"IEC 62304 Class C / FDA 510(k) SW Safety\",
+  \"generated_at_unix\": {ts},
+  \"compliant\": {comp},
+  \"checks\": {{
+    \"zero_heap\": {zh},
+    \"all_functions_wcet_bounded\": {ab},
+    \"all_functions_constant_time\": {act},
+    \"all_functions_deterministic\": {ad},
+    \"no_unaudited_ffi\": {nf}
+  }},
+  \"totals\": {{
+    \"functions\": {nfns},
+    \"secret_values\": {sv},
+    \"timing_leaks\": {nl},
+    \"wcet_violations\": {nv}
+  }},
+  \"functions\": [
+{fns}
+  ],
+  \"findings\": [
+{findings}
+  ]
+}}
+",
+            ts      = timestamp,
+            comp    = compliant,
+            zh      = zero_heap,
+            ab      = all_bounded,
+            act     = all_constant_time,
+            ad      = all_deterministic,
+            nf      = no_ffi_unaudited,
+            nfns    = zir.functions,
+            sv      = zir.secret_values,
+            nl      = timing_leaks.len(),
+            nv      = wcet_violations.len(),
+            fns     = fn_entries.join(",\n"),
+            findings = findings_json.join(",\n"),
+        );
+
+        // ── Human-readable summary ────────────────────────────────────────────
+        let ok  = |b: bool| if b { "PASS" } else { "FAIL" };
+        let mut txt = String::new();
+        txt.push_str("ZEUS IEC 62304 / FDA 510(k) COMPLIANCE REPORT\n");
+        txt.push_str("=============================================\n\n");
+        txt.push_str(&format!("Overall verdict: {}\n\n",
+            if compliant { "COMPLIANT" } else { "NOT COMPLIANT -- see findings below" }));
+        txt.push_str("IEC 62304 Class C Checklist:\n");
+        txt.push_str(&format!("  [{}] Req 1: Zero dynamic memory allocation\n",  ok(zero_heap)));
+        txt.push_str(&format!("  [{}] Req 2: All functions have provable WCET\n", ok(all_bounded)));
+        txt.push_str(&format!("  [{}] Req 3: No secret-dependent timing channels\n", ok(all_constant_time)));
+        txt.push_str(&format!("  [{}] Req 4: All functions deterministic\n",      ok(all_deterministic)));
+        txt.push_str(&format!("  [{}] Req 5: No unauditable FFI calls\n\n",       ok(no_ffi_unaudited)));
+        txt.push_str(&format!("Analysed: {} function(s), {} secret value(s)\n",
+            zir.functions, zir.secret_values));
+        if !timing_leaks.is_empty() {
+            txt.push_str("\nTiming-channel findings:\n");
+            for l in &timing_leaks { txt.push_str(&format!("  [!] {}\n", l)); }
+        }
+        if !wcet_violations.is_empty() {
+            txt.push_str("\nWCET violations:\n");
+            for v in &wcet_violations { txt.push_str(&format!("  [!] {}\n", v)); }
+        }
+        if compliant {
+            txt.push_str("\nThis report may be attached to an FDA 510(k) software safety submission\n");
+            txt.push_str("as evidence of IEC 62304 Class C compliance for the analysed module.\n");
+        }
+
+        std::fs::write("zeus_compliance.json", &json).map_err(|e| e.to_string())?;
+        std::fs::write("zeus_compliance.txt",  &txt).map_err(|e| e.to_string())?;
+
+        // Print concise verdict to terminal
+        let verdict_color = if compliant { "\x1b[1;32m" } else { "\x1b[1;31m" };
+        println!("\n\x1b[1;36m[ZEUS COMPLIANCE]\x1b[0m IEC 62304 / FDA 510(k) report generated:");
+        println!("  {}verdict: {}\x1b[0m", verdict_color,
+            if compliant { "COMPLIANT" } else { "NOT COMPLIANT" });
+        println!("  zero_heap={} | wcet_bounded={} | constant_time={} | deterministic={} | no_ffi={}",
+            zero_heap, all_bounded, all_constant_time, all_deterministic, no_ffi_unaudited);
+        if !compliant {
+            println!("  \x1b[1;31m{} finding(s) — see zeus_compliance.txt\x1b[0m",
+                timing_leaks.len() + wcet_violations.len());
+        }
+        println!("  \x1b[90mjson: zeus_compliance.json   txt: zeus_compliance.txt\x1b[0m");
+
         Ok(())
     }
 

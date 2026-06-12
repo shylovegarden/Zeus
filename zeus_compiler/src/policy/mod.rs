@@ -126,14 +126,93 @@ impl PolicyEngine {
         for prop in &self.required_properties {
             match prop {
                 Property::ZeroHeap => {
-                    // Check via ZIR analysis
-                    // violations.push(...)
+                    // Delegate to ZIR's zero-heap verdict (the authoritative source).
+                    let zir = crate::zir::lower_and_analyze(program);
+                    if !zir.zero_heap {
+                        violations.push(Violation {
+                            operation: Operation::Malloc,
+                            location: "<program>".to_string(),
+                            message: "zero-heap policy violated: program reaches a heap-allocating \
+                                      construct or an opaque extern (ZIR verdict: zero_heap=false)".to_string(),
+                        });
+                    }
                 }
                 Property::ConstantTime => {
-                    // Check for secret branches/divisions
+                    // Check ZIR per-function constant_time flags.
+                    let zir = crate::zir::lower_and_analyze(program);
+                    for pf in &zir.per_fn {
+                        if !pf.constant_time {
+                            violations.push(Violation {
+                                operation: Operation::SecretBranch,
+                                location: pf.name.clone(),
+                                message: format!(
+                                    "fn '{}': constant-time policy violated — \
+                                     secret-dependent branch or index detected",
+                                    pf.name
+                                ),
+                            });
+                        }
+                    }
                 }
                 Property::FdaCompliant => {
-                    // Check for medical device attributes
+                    // Run the same five IEC 62304 Class C checks used by the
+                    // compliance report so the policy gate is consistent.
+                    let zir  = crate::zir::lower_and_analyze(program);
+                    let bnds = crate::bounds::analyze(program);
+
+                    if !zir.zero_heap {
+                        violations.push(Violation {
+                            operation: Operation::Malloc,
+                            location: "<program>".to_string(),
+                            message: "IEC 62304 Req 1 FAIL: dynamic memory allocation detected \
+                                      (zero_heap=false)".to_string(),
+                        });
+                    }
+                    for fb in &bnds.fns {
+                        if fb.wcet.is_none() {
+                            violations.push(Violation {
+                                operation: Operation::Syscall, // closest available variant
+                                location: fb.name.clone(),
+                                message: format!(
+                                    "IEC 62304 Req 2 FAIL: fn '{}' has no provable WCET bound \
+                                     (while/recursion/extern present)",
+                                    fb.name
+                                ),
+                            });
+                        }
+                    }
+                    for pf in &zir.per_fn {
+                        if !pf.constant_time {
+                            violations.push(Violation {
+                                operation: Operation::SecretBranch,
+                                location: pf.name.clone(),
+                                message: format!(
+                                    "IEC 62304 Req 3 FAIL: fn '{}' has a secret-dependent \
+                                     timing channel",
+                                    pf.name
+                                ),
+                            });
+                        }
+                        if !pf.deterministic {
+                            violations.push(Violation {
+                                operation: Operation::RandomAccess,
+                                location: pf.name.clone(),
+                                message: format!(
+                                    "IEC 62304 Req 4 FAIL: fn '{}' is not provably deterministic \
+                                     (nondeterministic source reachable)",
+                                    pf.name
+                                ),
+                            });
+                        }
+                    }
+                    if zir.ffi_unaudited {
+                        violations.push(Violation {
+                            operation: Operation::Syscall,
+                            location: "<program>".to_string(),
+                            message: "IEC 62304 Req 5 FAIL: program calls opaque extern function(s) \
+                                      that cannot be audited (ffi_unaudited=true)".to_string(),
+                        });
+                    }
                 }
                 _ => {}
             }

@@ -4,8 +4,9 @@ use std::collections::HashMap;
 use crate::comptime::compiler::BytecodeCompiler;
 use crate::vm::machine::Machine;
 
+// ── Strict type-kind (bidirectional inference engine) ─────────────
 #[derive(PartialEq)]
-enum TyKind { Num, StrK, StructK(String), ArrK, TenK, Wild }
+enum TyKind { Num, StrK, StructK(String), ArrK, TenK, PtrK, ResultK, UnknownK }
 
 fn ty_kind(t: &Type) -> TyKind {
     match t {
@@ -14,23 +15,89 @@ fn ty_kind(t: &Type) -> TyKind {
         Type::Struct(n) => TyKind::StructK(n.clone()),
         Type::Array(..) => TyKind::ArrK,
         Type::Tensor { .. } => TyKind::TenK,
-        _ => TyKind::Wild, // Unknown / Pointer / Result -> wildcard, never flagged
+        Type::Pointer(_) => TyKind::PtrK,
+        Type::Result(..) => TyKind::ResultK,
+        _ => TyKind::UnknownK,
     }
 }
 
-/// Conservative type compatibility: only INCOMPATIBLE when both sides are known,
-/// concrete, DIFFERENT kinds (e.g. str vs numeric, struct A vs struct B). All
-/// numerics are mutually compatible (number literals are f64 until annotated), and
-/// any Unknown/Pointer/Result is a wildcard, so loose programs are never falsely
-/// rejected -- the checker never produces a false positive.
+// ── Strict width-aware numeric type system (--strict-types) ──────────────────
+/// Each numeric type is its own lane; any cross-lane assignment without an
+/// explicit cast is a compile error in strict mode.
+#[derive(Debug, PartialEq, Clone, Copy)]
+enum StrictNumericKind {
+    I8,   // signed  8-bit
+    I32,  // signed 32-bit
+    U64,  // unsigned 64-bit
+    F32,  // 32-bit float
+    F64,  // 64-bit float
+    Bool, // boolean (not numeric, but often used with numerics)
+    /// An untyped number literal (e.g. `42`, `3.14`). Assignable to any
+    /// numeric type — the literal value carries no width commitment.
+    Literal,
+    /// Not a numeric type (struct, array, str, etc.) — skip strict check.
+    NonNumeric,
+}
+
+fn numeric_strict_kind(t: &Type) -> StrictNumericKind {
+    match t {
+        Type::I8    => StrictNumericKind::I8,
+        Type::I32   => StrictNumericKind::I32,
+        Type::U64   => StrictNumericKind::U64,
+        Type::F32   => StrictNumericKind::F32,
+        Type::F64   => StrictNumericKind::F64,
+        Type::Bool  => StrictNumericKind::Bool,
+        _           => StrictNumericKind::NonNumeric,
+    }
+}
+
+/// Returns `Ok(())` if assigning `rhs` to a slot typed `lhs` is safe in strict
+/// mode, or `Err(message)` describing the width/signedness violation.
+///
+/// Rules:
+///  1. If either side is `NonNumeric` → not our problem; permissive path handles it.
+///  2. If `rhs` is `Literal` → always OK (no precision loss on a constant).
+///  3. If `lhs == rhs` kind → OK.
+///  4. Otherwise → reject with an informative error.
+fn numerics_width_compatible(lhs: StrictNumericKind, rhs: StrictNumericKind) -> Result<(), String> {
+    use StrictNumericKind::*;
+    match (lhs, rhs) {
+        // Non-numeric types: fall through to the permissive checker
+        (NonNumeric, _) | (_, NonNumeric) => Ok(()),
+        // Untyped literal fits any numeric slot
+        (_, Literal) => Ok(()),
+        // Identical types always OK
+        (a, b) if a == b => Ok(()),
+        // Everything else is a width/kind mismatch
+        (lhs_k, rhs_k) => Err(format!(
+            "strict type error: cannot implicitly assign {:?} value to a {:?} slot \
+             (use an explicit cast or change the type annotation)",
+            rhs_k, lhs_k
+        )),
+    }
+}
+
+/// Infer the `StrictNumericKind` of an expression — `Literal` for bare number
+/// literals so they satisfy any numeric annotation without precision-loss.
+fn strict_kind_of_expr(expr: &Expression, inferred_type: &Type) -> StrictNumericKind {
+    if matches!(expr, Expression::Number(_)) {
+        return StrictNumericKind::Literal;
+    }
+    numeric_strict_kind(inferred_type)
+}
+
+/// Rigorous type compatibility: enforces bidirectional inference bounds.
+/// Unknowns are rejected to prevent 'any'-type leaking.
 fn types_compatible(a: &Type, b: &Type) -> bool {
     use TyKind::*;
     match (ty_kind(a), ty_kind(b)) {
-        (Wild, _) | (_, Wild) => true,
+        // Enforce strict unifications. Unknowns are no longer wildcards.
         (Num, Num) => true,
         (StrK, StrK) => true,
         (ArrK, ArrK) | (TenK, TenK) | (ArrK, TenK) | (TenK, ArrK) => true,
         (StructK(x), StructK(y)) => x == y,
+        (PtrK, PtrK) => true,
+        (ResultK, ResultK) => true,
         _ => false,
     }
 }
@@ -57,9 +124,14 @@ pub struct SemanticAnalyzer {
     function_arity: HashMap<String, usize>,
     function_param_types: HashMap<String, Vec<Type>>,
     current_return: Vec<Option<Type>>,
+    /// When true, numeric assignments are checked for width/signedness compatibility.
+    /// Activated by `SemanticAnalyzer::new_strict()` (flag: `--strict-types`).
+    pub strict_types: bool,
+    pub current_line: usize,
 }
 
 impl SemanticAnalyzer {
+    /// Default constructor — permissive numeric type checking (backward-compatible).
     pub fn new() -> Self {
         Self {
             scopes: vec![HashMap::new()],
@@ -68,7 +140,31 @@ impl SemanticAnalyzer {
             function_arity: HashMap::new(),
             function_param_types: HashMap::new(),
             current_return: Vec::new(),
+            strict_types: false,
+            current_line: 1,
         }
+    }
+
+    /// Strict constructor — enables width-aware numeric type checking.
+    /// Use when `--strict-types` is passed on the CLI.
+    pub fn new_strict() -> Self {
+        Self { strict_types: true, ..Self::new() }
+    }
+
+    /// Run the strict numeric width check if strict mode is enabled.
+    /// `ann` is the declared/expected type; `val_expr` is the initialising expression.
+    fn check_numeric_width(
+        &self,
+        ann: &Type,
+        val_expr: &Expression,
+        inferred: &Type,
+        context: &str,
+    ) -> Result<(), String> {
+        if !self.strict_types { return Ok(()); }
+        let lhs_k = numeric_strict_kind(ann);
+        let rhs_k = strict_kind_of_expr(val_expr, inferred);
+        numerics_width_compatible(lhs_k, rhs_k)
+            .map_err(|e| format!("{}: {}", context, e))
     }
 
     fn push_scope(&mut self) { self.scopes.push(HashMap::new()); }
@@ -83,7 +179,7 @@ impl SemanticAnalyzer {
         None
     }
 
-    pub fn analyze(&mut self, program: &mut Program) -> Result<(), String> {
+    pub fn analyze(&mut self, program: &mut Program) -> Result<(), crate::diagnostics::Diagnostic> {
         // Pre-pass: Register all function return types
         for stmt in &program.statements {
             match stmt {
@@ -110,7 +206,19 @@ impl SemanticAnalyzer {
         }
 
         for stmt in &mut program.statements {
-            self.analyze_statement(stmt)?;
+            if let Statement::LineDirective(l) = stmt {
+                self.current_line = *l;
+            }
+            if let Err(e) = self.analyze_statement(stmt) {
+                return Err(crate::diagnostics::Diagnostic::new(
+                    crate::diagnostics::Severity::Error,
+                    e,
+                    self.current_line,
+                    1, // column fallback
+                    1, // span length fallback
+                    None, // source path will be injected by main.rs
+                ));
+            }
         }
         Ok(())
     }
@@ -133,6 +241,11 @@ impl SemanticAnalyzer {
                         return Err(format!("type mismatch: '{}' is declared {} but initialized with {}",
                             name, ty_name(&ann), ty_name(&inferred)));
                     }
+                    // Strict width check (only fires when --strict-types is active)
+                    self.check_numeric_width(
+                        &ann, value, &inferred,
+                        &format!("let '{}':", name),
+                    )?;
                 } else {
                     *var_type = Some(inferred.clone());
                 }
@@ -159,6 +272,11 @@ impl SemanticAnalyzer {
                                                 ty_name(&rhs_ty), name, ty_name(&dt)
                                             ));
                                         }
+                                        // Strict width check
+                                        self.check_numeric_width(
+                                            &dt, &right, &rhs_ty,
+                                            &format!("assignment to '{}':", name),
+                                        )?;
                                     }
                                 }
                                 None => {
@@ -308,6 +426,11 @@ impl SemanticAnalyzer {
                         return Err(format!("return type mismatch: function returns {} but a `return` yields {}",
                             ty_name(&rt), ty_name(&got)));
                     }
+                    // Strict width check on return value
+                    self.check_numeric_width(
+                        &rt, expr, &got,
+                        "return:",
+                    )?;
                 }
             }
             Statement::LineDirective(_) => {}
@@ -454,6 +577,11 @@ impl SemanticAnalyzer {
                                 return Err(format!("argument {} to '{}' has type {} but the parameter is {}",
                                     i + 1, name, ty_name(&at), ty_name(pt)));
                             }
+                            // Strict width check on call arguments
+                            self.check_numeric_width(
+                                pt, arg, &at,
+                                &format!("argument {} to '{}':", i + 1, name),
+                            )?;
                         }
                     }
                 }

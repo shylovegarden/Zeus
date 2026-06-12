@@ -380,9 +380,9 @@ fn publish_diagnostics(uri: &str, text: &str) {
     let mut analyzer = SemanticAnalyzer::new();
     if let Err(e) = analyzer.analyze(&mut program) {
         diagnostics.push(serde_json::json!({
-            "range": { "start": { "line": 0, "character": 0 }, "end": { "line": 0, "character": 100 } },
+            "range": { "start": { "line": e.line.saturating_sub(1), "character": e.column.saturating_sub(1) }, "end": { "line": e.line.saturating_sub(1), "character": e.column.saturating_sub(1) + 100 } },
             "severity": 1,
-            "message": e,
+            "message": e.message,
             "source": "zeus"
         }));
     }
@@ -396,6 +396,73 @@ fn publish_diagnostics(uri: &str, text: &str) {
             "message": format!("[ENERGY ALERT] {}", warning),
             "source": "zeus"
         }));
+    }
+
+    // Symbol table for mapping function-level ZIR/Bounds errors to lines
+    let symbols = build_symbol_table(text);
+    let get_fn_line = |fname: &str| -> u32 {
+        symbols.iter()
+            .find(|s| s.kind == SymbolKind::Function && s.name == fname)
+            .map(|s| s.decl_line)
+            .unwrap_or(0)
+    };
+
+    // ZIR Taint Analysis
+    let zir_report = crate::zir::lower_and_analyze(&program);
+    for leak in zir_report.leaks {
+        // Leaks look like "fn <name>: message"
+        let mut line = 0;
+        if let Some(rest) = leak.strip_prefix("fn ") {
+            if let Some(colon) = rest.find(':') {
+                let fname = &rest[..colon];
+                line = get_fn_line(fname);
+            }
+        }
+        diagnostics.push(serde_json::json!({
+            "range": {
+                "start": { "line": line, "character": 0 },
+                "end":   { "line": line, "character": 100 }
+            },
+            "severity": 1, // Error
+            "message": format!("ZIR NOT-PROVEN: {}", leak),
+            "source": "zeus-zir"
+        }));
+    }
+
+    // Z3 SMT Solver (Bounds)
+    let bounds_report = crate::bounds::analyze(&program);
+    for violation in bounds_report.violations {
+        let mut line = 0;
+        if let Some(rest) = violation.strip_prefix("fn ") {
+            if let Some(colon) = rest.find(':') {
+                let fname = &rest[..colon];
+                line = get_fn_line(fname);
+            }
+        }
+        diagnostics.push(serde_json::json!({
+            "range": {
+                "start": { "line": line, "character": 0 },
+                "end":   { "line": line, "character": 100 }
+            },
+            "severity": 1, // Error
+            "message": format!("Z3 BOUNDS ERROR: {}", violation),
+            "source": "zeus-z3"
+        }));
+    }
+    
+    // Also mark unbounded functions
+    for f in bounds_report.fns {
+        if f.wcet.is_none() {
+            diagnostics.push(serde_json::json!({
+                "range": {
+                    "start": { "line": get_fn_line(&f.name), "character": 0 },
+                    "end":   { "line": get_fn_line(&f.name), "character": 100 }
+                },
+                "severity": 2, // Warning
+                "message": format!("UNDECIDABLE: fn {} contains unbounded loops or recursion.", f.name),
+                "source": "zeus-z3"
+            }));
+        }
     }
 
     let resp = serde_json::json!({

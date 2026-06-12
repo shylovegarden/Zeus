@@ -38,6 +38,7 @@ mod enclave;
 mod swarm;
 mod policy;
 mod proof_viz;
+mod diagnostics;
 
 use ast::Statement;
 use lexer::Lexer;
@@ -104,9 +105,11 @@ fn main() {
             let mut tune = false;
             let mut arch_blueprint = None;
             let mut policy_file = None;
+            let mut strict_types = false;
             for arg in &args[2..] {
                 if arg == "--mlir" { mlir = true; }
                 else if arg == "--tune" { tune = true; }
+                else if arg == "--strict-types" { strict_types = true; }
                 else if arg.starts_with("--target=") {
                     cross_target = Some(arg.trim_start_matches("--target=").to_string());
                 }
@@ -153,7 +156,7 @@ fn main() {
                 }
             }
             
-            build_project(target, false, mlir, cross_target, disable_adaptive, export_mutation_log, arch_blueprint, tune);
+            build_project(target, false, mlir, cross_target, disable_adaptive, export_mutation_log, arch_blueprint, tune, strict_types);
         }
         "run" => {
             let mut target = "src/main.zs";
@@ -184,7 +187,7 @@ fn main() {
                 }
             }
             if required.is_empty() {
-                build_project(target, true, mlir, cross_target, disable_adaptive, export_mutation_log, None, false);
+                build_project(target, true, mlir, cross_target, disable_adaptive, export_mutation_log, None, false, false);
             } else {
                 run_with_policy(target, &required);
             }
@@ -463,14 +466,14 @@ fn main() {
             }
             match target {
                 Some(t) if t.ends_with(".ll") => llvm_ingest::audit_ll(t, sarif, sarif_path, strict),
-                Some(t) => cmd_audit(t, sarif, sarif_path, strict),
-                None => { eprintln!("usage: zeus audit <file.zs|file.ll> [--json] [--sarif [file]] [--strict]"); std::process::exit(1); }
+                Some(t) => cmd_audit(t, sarif, sarif_path, strict, std::env::args().any(|a| a == "--strict-types")),
+                None => { eprintln!("usage: zeus audit <file.zs|file.ll> [--json] [--sarif [file]] [--strict] [--strict-types]"); std::process::exit(1); }
             }
         }
         _ => {
             // Legacy fallback for `zeus_compiler file.zs`
             if command.ends_with(".zs") {
-                build_project(command, false, false, None, false, false, None, false);
+                build_project(command, false, false, None, false, false, None, false, false);
             } else {
                 print_usage();
                 std::process::exit(1);
@@ -669,7 +672,7 @@ fn write_certificate(source_path: &str, base_name: &str, zir: &zir::ZirReport, b
 
 /// `zeus cert <file>`: build and print a human-readable trust report from the certificate.
 fn cmd_cert(target: &str) {
-    build_project(target, false, false, None, false, false, None, false);
+    build_project(target, false, false, None, false, false, None, false, false);
     let base = std::path::Path::new(target).file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
     let cert = std::fs::read_to_string(format!("{}.zcert", base)).unwrap_or_default();
     if cert.is_empty() { eprintln!("no certificate produced"); std::process::exit(1); }
@@ -903,7 +906,7 @@ fn language_positioning_json(proved_ct: bool, proved_wcet: bool, proved_det: boo
         ct = proved_ct, wc = proved_wcet, det = proved_det)
 }
 
-fn cmd_audit(source_path: &str, sarif: bool, sarif_path: Option<String>, strict: bool) {
+fn cmd_audit(source_path: &str, sarif: bool, sarif_path: Option<String>, strict: bool, strict_types: bool) {
     if !source_path.ends_with(".zs") {
         eprintln!("\x1b[31m[ZEUS ERROR]\x1b[0m audit only processes .zs files: {}", source_path);
         std::process::exit(1);
@@ -927,10 +930,15 @@ fn cmd_audit(source_path: &str, sarif: bool, sarif_path: Option<String>, strict:
         std::process::exit(1);
     }
     oram::flatten_memory_accesses(&mut program);
-    let mut analyzer = analyzer::SemanticAnalyzer::new();
-    if let Err(e) = analyzer.analyze(&mut program) {
-        eprintln!("\n\x1b[31m[ZEUS AUDIT ABORTED]\x1b[0m");
-        eprintln!(" \x1b[31m[ZEUS ERROR]\x1b[0m {}", e);
+    let mut analyzer = if strict_types {
+        analyzer::SemanticAnalyzer::new_strict()
+    } else {
+        analyzer::SemanticAnalyzer::new()
+    };
+    if let Err(mut e) = analyzer.analyze(&mut program) {
+        e.source_path = Some(source_path.to_string());
+        eprintln!("\n\x1b[31m[ZEUS AUDIT ABORTED]\x1b[0m Semantic Error");
+        e.print_pretty();
         std::process::exit(1);
     }
 
@@ -1078,7 +1086,7 @@ fn cmd_audit(source_path: &str, sarif: bool, sarif_path: Option<String>, strict:
 /// `zeus run <file> --require p1,p2`: build, then refuse to execute unless the
 /// certificate proves every required property.
 fn run_with_policy(target: &str, required: &[String]) {
-    build_project(target, false, false, None, false, false, None, false);
+    build_project(target, false, false, None, false, false, None, false, false);
     let base = std::path::Path::new(target).file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
     let cert_path = format!("{}.zcert", base);
 
@@ -1160,23 +1168,18 @@ fn emit_json_diagnostics(errors: &[String]) {
     println!("{{\"status\":\"error\",\"stage\":\"parse\",\"diagnostics\":[{}]}}", items.join(","));
 }
 
-/// Print diagnostics in Rust-style  `error[E]: msg\n --> file:L:C`.
-fn print_parse_errors(source_path: &str, source: &str, errors: &[String]) {
-    let lines: Vec<&str> = source.lines().collect();
+fn print_parse_errors(source_path: &str, _source: &str, errors: &[String]) {
     for e in errors {
         let (line, col, msg) = parse_diag(e);
-        eprintln!("\x1b[1;31merror\x1b[0m: {}", msg);
-        if line > 0 {
-            eprintln!(" \x1b[1;34m-->\x1b[0m {}:{}:{}", source_path, line, col);
-            eprintln!("  \x1b[1;34m|\x1b[0m");
-            let src_line = lines.get((line as usize).saturating_sub(1)).copied().unwrap_or("");
-            eprintln!("{:>3} \x1b[1;34m|\x1b[0m {}", line, src_line);
-            if col > 0 {
-                let spaces = " ".repeat((col as usize).saturating_sub(1));
-                eprintln!("  \x1b[1;34m|\x1b[0m {}\x1b[1;31m^\x1b[0m here", spaces);
-            }
-            eprintln!("  \x1b[1;34m|\x1b[0m");
-        }
+        let diag = crate::diagnostics::Diagnostic::new(
+            crate::diagnostics::Severity::Error,
+            msg,
+            line as usize,
+            col as usize,
+            1, // length fallback
+            Some(source_path.to_string()),
+        );
+        diag.print_pretty();
     }
 }
 
@@ -1211,7 +1214,8 @@ fn print_usage() {
     println!("  \x1b[35mstrike\x1b[0m               Aggressively clean, format & optimize the codebase");
     println!();
     println!("\x1b[1;33mBuild Flags:\x1b[0m");
-    println!("  \x1b[33m--target=<triple>\x1b[0m         Cross-compile to target architecture");
+    println!("  \x1b[33m--strict-types\x1b[0m                Reject implicit numeric precision loss (u64→u32, float→int, etc.)
+  \x1b[33m--target=<triple>\x1b[0m             Cross-compile to target architecture");
     println!("  \x1b[33m--mlir\x1b[0m                    Emit MLIR middle-end instead of C");
     println!("  \x1b[33m--disable-adaptive\x1b[0m        Disable JIT profiling mutations for pure deterministic execution");
     println!("  \x1b[33m--export-mutation-log\x1b[0m     Generate a cryptographic ledger of runtime JIT modifications");
@@ -1306,7 +1310,7 @@ fn write_safety_report(program: &ast::Program) {
 }
 
 #[allow(clippy::too_many_arguments)]
-fn build_project(source_path: &str, run_after: bool, mlir_mode: bool, cross_target: Option<String>, disable_adaptive: bool, export_mutation_log: bool, _arch_blueprint: Option<crate::hardware_matrix::HardwareBlueprint>, tune: bool) {
+fn build_project(source_path: &str, run_after: bool, mlir_mode: bool, cross_target: Option<String>, disable_adaptive: bool, export_mutation_log: bool, _arch_blueprint: Option<crate::hardware_matrix::HardwareBlueprint>, tune: bool, strict_types: bool) {
     let start_total = Instant::now();
     
     println!(" \x1b[1;36m[ZEUS BUILD]\x1b[0m Compiling \x1b[32m{}\x1b[0m", source_path);
@@ -1387,10 +1391,15 @@ fn build_project(source_path: &str, run_after: bool, mlir_mode: bool, cross_targ
 
     let t_analyze = Instant::now();
     // Pass config to SemanticAnalyzer
-    let mut analyzer = analyzer::SemanticAnalyzer::new();
-    if let Err(e) = analyzer.analyze(&mut program) {
+    let mut analyzer = if strict_types {
+        analyzer::SemanticAnalyzer::new_strict()
+    } else {
+        analyzer::SemanticAnalyzer::new()
+    };
+    if let Err(mut e) = analyzer.analyze(&mut program) {
+        e.source_path = Some(source_path.to_string());
         eprintln!("\n\x1b[31m[ZEUS COMPILATION ABORTED]\x1b[0m");
-        eprintln!(" \x1b[31m[ZEUS ERROR]\x1b[0m {}", e);
+        e.print_pretty();
         std::process::exit(1);
     }
     let d_analyze = t_analyze.elapsed();
