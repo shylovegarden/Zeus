@@ -1,0 +1,28 @@
+[package]
+name = "shield-console"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Zeus Shield web console and API server"
+
+[[bin]]
+name = "zeus-shield-console"
+path = "src/main.rs"
+
+[dependencies]
+shield-core = { path = "../shield-core" }
+shield-scanner = { path = "../shield-scanner" }
+shield-sandbox = { path = "../shield-sandbox" }
+shield-patch = { path = "../shield-patch" }
+shield-verify = { path = "../shield-verify" }
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+uuid.workspace = true
+chrono.workspace = true
+thiserror.workspace = true
+axum.workspace = true
+tower.workspace = true
+tower-http.workspace = true

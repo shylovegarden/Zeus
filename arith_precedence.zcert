@@ -1,9 +1,13 @@
 {
   "zeus_certificate":"v1",
-  "source":"./tests/cases/arith_precedence.zs",
+  "source":"tests/cases/arith_precedence.zs",
   "source_sha256":"87f8d424d6bba1a503aec6d93fa57dbb58cbb26968541f02ef8b2f95b7d835b3",
+  "binary_sha256":"f07774dbd35573a534f45bae10bc81cb548e505b067a56dce954321766d1363d",
   "zero_heap":true,
+  "ffi_unaudited":false,
   "functions":[
-    {"name":"main","reproducible":true,"constant_time":true,"wcet_steps":24,"stack_bytes":96}
-  ]
+    {"name":"main","reproducible":true,"constant_time":true,"wcet_steps":24,"stack_bytes":96,"ffi_unaudited":false}
+  ],
+  "signature":"08a03d9f2ea52a60dec9d3bf4f906fcb60c46cb2e63142d6743bd97f7a8064f46a869dbfc900911f9f0883cd8ac2882dc240eb53b28cdca9849035f8c2fc0f0b",
+  "pubkey":"0fb2d04ef344666b16a24c2f3c21daea89d8af5c919d7abfe71ee72c5c8125ff"
 }

@@ -1,0 +1,24 @@
+[package]
+name = "shield-agent"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Lightweight daemon agent for Zeus Shield"
+
+[[bin]]
+name = "zeus-shield-agent"
+path = "src/main.rs"
+
+[dependencies]
+shield-core = { path = "../shield-core" }
+shield-scanner = { path = "../shield-scanner" }
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+uuid.workspace = true
+chrono.workspace = true
+thiserror.workspace = true
+reqwest.workspace = true
+clap.workspace = true

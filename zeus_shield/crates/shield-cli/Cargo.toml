@@ -1,0 +1,24 @@
+[package]
+name = "shield-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Zeus Shield command-line interface"
+
+[[bin]]
+name = "zeus-shield"
+path = "src/main.rs"
+
+[dependencies]
+shield-core = { path = "../shield-core" }
+shield-scanner = { path = "../shield-scanner" }
+shield-patch = { path = "../shield-patch" }
+shield-verify = { path = "../shield-verify" }
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+uuid.workspace = true
+chrono.workspace = true
+clap.workspace = true

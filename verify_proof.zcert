@@ -1,10 +1,14 @@
 {
   "zeus_certificate":"v1",
-  "source":"./tests/cases/verify_proof.zs",
+  "source":"tests/cases/verify_proof.zs",
   "source_sha256":"271c1902497bd1c2f10cde420f587048240ba68987cd23c2e57efacaf36553c3",
+  "binary_sha256":"79419e82c2a99e589055fd6a648c828331daa168abcb7e47edf88c6ca5f6afe8",
   "zero_heap":true,
+  "ffi_unaudited":false,
   "functions":[
-    {"name":"main","reproducible":true,"constant_time":true,"wcet_steps":2,"stack_bytes":72},
-    {"name":"<toplevel>","reproducible":true,"constant_time":true,"wcet_steps":null,"stack_bytes":0}
-  ]
+    {"name":"main","reproducible":true,"constant_time":true,"wcet_steps":2,"stack_bytes":72,"ffi_unaudited":false},
+    {"name":"<toplevel>","reproducible":true,"constant_time":true,"wcet_steps":null,"stack_bytes":0,"ffi_unaudited":false}
+  ],
+  "signature":"462c97cbbeb97768597aa8a74dc380bbf632be5aa4df563f9d5b39054378dd2931257d4bc278d5afee83dffaea8c67c47819515e77a52c650e46df3651988c0f",
+  "pubkey":"0fb2d04ef344666b16a24c2f3c21daea89d8af5c919d7abfe71ee72c5c8125ff"
 }

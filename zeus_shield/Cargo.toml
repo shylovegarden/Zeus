@@ -1,0 +1,40 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/shield-core",
+    "crates/shield-agent",
+    "crates/shield-scanner",
+    "crates/shield-sandbox",
+    "crates/shield-patch",
+    "crates/shield-verify",
+    "crates/shield-console",
+    "crates/shield-cli",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/shylovegarden/Zeus"
+
+[workspace.dependencies]
+tokio = { version = "1.0", features = ["full"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tracing = "0.1"
+tracing-subscriber = "0.3"
+uuid = { version = "1.0", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+thiserror = "2.0"
+anyhow = "1.0"
+async-trait = "0.1"
+tonic = "0.12"
+prost = "0.13"
+reqwest = { version = "0.12", features = ["json"] }
+axum = "0.7"
+tower = "0.5"
+tower-http = { version = "0.6", features = ["cors", "trace"] }
+clap = { version = "4.0", features = ["derive"] }
+sha2 = "0.10"
+ed25519-dalek = { version = "2", features = ["rand_core"] }
+rand = "0.8"

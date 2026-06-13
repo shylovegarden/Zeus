@@ -1,0 +1,17 @@
+[package]
+name = "shield-patch"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Automated patch generation and AI-driven fix engine"
+
+[dependencies]
+shield-core = { path = "../shield-core" }
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+uuid.workspace = true
+chrono.workspace = true
+thiserror.workspace = true
+async-trait.workspace = true
