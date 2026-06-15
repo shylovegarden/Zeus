@@ -4,8 +4,8 @@ use shield_core::{
     types::*,
     traits::Scanner,
 };
-use std::net::{SocketAddr, TcpStream};
 use std::time::Duration;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream as TokioTcpStream;
 use uuid::Uuid;
 use chrono::Utc;
@@ -60,8 +60,6 @@ impl NetworkScanner {
     }
 
     async fn grab_banner(&self, host: &str, port: u16) -> Option<String> {
-        use tokio::io::{AsyncReadExt, AsyncWriteExt};
-        
         let addr = format!("{}:{}", host, port);
         let timeout_result = tokio::time::timeout(
             Duration::from_secs(2),
@@ -69,18 +67,32 @@ impl NetworkScanner {
         ).await;
 
         if let Ok(Ok(mut stream)) = timeout_result {
-            // Send a probe for HTTP
-            if port == 80 || port == 443 || port == 8080 || port == 8443 {
-                let _ = stream.write_all(b"HEAD / HTTP/1.0\r\nHost: target\r\n\r\n").await;
+            // Send protocol-appropriate probe
+            let probe: Option<&[u8]> = match port {
+                80 | 8080 => Some(b"HEAD / HTTP/1.0\r\nHost: target\r\n\r\n"),
+                21 => None, // FTP sends banner immediately
+                22 => None, // SSH sends banner immediately
+                25 | 587 => Some(b"EHLO shield\r\n"),
+                110 => None, // POP3 sends banner
+                143 => None, // IMAP sends banner
+                _ => None,
+            };
+
+            if let Some(p) = probe {
+                let _ = stream.write_all(p).await;
             }
 
-            let mut buf = vec![0u8; 1024];
+            let mut buf = vec![0u8; 512];
             if let Ok(Ok(n)) = tokio::time::timeout(
                 Duration::from_secs(2),
                 stream.read(&mut buf),
             ).await {
                 if n > 0 {
-                    return Some(String::from_utf8_lossy(&buf[..n]).to_string());
+                    let raw = String::from_utf8_lossy(&buf[..n]).to_string();
+                    // Return first non-empty line only
+                    let first_line = raw.lines().find(|l| !l.trim().is_empty())
+                        .unwrap_or("").to_string();
+                    return Some(first_line);
                 }
             }
         }
@@ -136,12 +148,61 @@ impl Scanner for NetworkScanner {
 
         tracing::info!("Found {} open ports on {}", open_ports.len(), host);
 
+        // Grab banners and analyse open ports concurrently
+        let mut banner_handles = Vec::new();
+        for &port in &open_ports {
+            let host = host.clone();
+            let timeout = self.timeout;
+            banner_handles.push(tokio::spawn(async move {
+                let addr = format!("{}:{}", host, port);
+                let result = tokio::time::timeout(
+                    Duration::from_secs(2),
+                    TokioTcpStream::connect(&addr),
+                ).await;
+                if let Ok(Ok(mut stream)) = result {
+                    let probe: Option<&[u8]> = match port {
+                        80 | 8080 => Some(b"HEAD / HTTP/1.0\r\nHost: target\r\n\r\n"),
+                        25 | 587 => Some(b"EHLO shield\r\n"),
+                        _ => None,
+                    };
+                    if let Some(p) = probe {
+                        let _ = stream.write_all(p).await;
+                    }
+                    let mut buf = vec![0u8; 512];
+                    if let Ok(Ok(n)) = tokio::time::timeout(
+                        Duration::from_secs(2),
+                        stream.read(&mut buf),
+                    ).await {
+                        if n > 0 {
+                            let raw = String::from_utf8_lossy(&buf[..n]).to_string();
+                            let banner = raw.lines().find(|l| !l.trim().is_empty())
+                                .unwrap_or("").trim().to_string();
+                            return (port, Some(banner));
+                        }
+                    }
+                }
+                (port, None::<String>)
+            }));
+        }
+
+        let mut port_banners: std::collections::HashMap<u16, Option<String>> =
+            std::collections::HashMap::new();
+        for h in banner_handles {
+            if let Ok((port, banner)) = h.await {
+                port_banners.insert(port, banner);
+            }
+        }
+
         // Analyze open ports for vulnerabilities
         for port in &open_ports {
             let service = identify_service(*port);
-            
-            // Check for known dangerous services
+            let banner = port_banners.get(port).and_then(|b| b.clone());
+
             if let Some(vuln) = check_dangerous_service(*port, &service) {
+                let raw_evidence = match &banner {
+                    Some(b) => format!("Port {} open: {} | Banner: {}", port, service, b),
+                    None    => format!("Port {} open: {}", port, service),
+                };
                 vulns.push(Vulnerability {
                     id: Uuid::new_v4(),
                     target_id: target.id,
@@ -152,7 +213,7 @@ impl Scanner for NetworkScanner {
                     cve_id: None,
                     cvss_score: None,
                     evidence: Evidence {
-                        raw: format!("Port {} open: {}", port, service),
+                        raw: raw_evidence,
                         reproduction_steps: vec![
                             format!("Connect to {}:{}", host, port),
                         ],
