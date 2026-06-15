@@ -1,8 +1,9 @@
 use clap::{Parser, Subcommand};
-use shield_core::traits::{Scanner, Patcher};
+use shield_core::traits::{Scanner, Patcher, Verifier};
 use shield_core::types::*;
 use shield_patch::PatchEngine;
 use shield_scanner::{NetworkScanner, DeviceScanner};
+use shield_verify::ZeusVerifier;
 use std::path::PathBuf;
 use tracing::info;
 use uuid::Uuid;
@@ -271,22 +272,53 @@ async fn cmd_fix(
         println!();
     }
 
-    // Step 4: apply (if --auto) or prompt
+    // Step 4: verify + apply
     println!("[4/4] Apply fixes");
     if auto {
-        println!("  --auto flag set: applying {} patches", patches.len());
-        for (vuln, patch) in &patches {
-            println!("  [APPLY] {}", patch.description);
-            // TODO: invoke Connector.apply_patch() for real system changes
+        // Verify each patch before applying
+        if verify {
+            println!("  [VERIFY] Running Zeus verification on patches...");
+            let zeus_path = which_zeus();
+            let verifier = ZeusVerifier::new(zeus_path);
+            for (_vuln, patch) in &mut patches {
+                match verifier.verify(patch).await {
+                    Ok(cert) => {
+                        println!("  ✓ Verified: {} — properties: {}",
+                            patch.description,
+                            cert.properties_proven.join(", ")
+                        );
+                        patch.verified = true;
+                        patch.certificate = Some(cert);
+                    }
+                    Err(e) => {
+                        println!("  ✗ Verification failed for {}: {}", patch.description, e);
+                        println!("    Skipping this patch.");
+                        continue;
+                    }
+                }
+            }
+            println!();
+        }
+
+        println!("  Applying {} patches...", patches.len());
+        let mut applied = 0;
+        for (_vuln, patch) in &patches {
+            if verify && !patch.verified {
+                continue;
+            }
+            match apply_patch_to_system(patch).await {
+                Ok(msg) => {
+                    println!("  ✓ Applied: {}", msg);
+                    applied += 1;
+                }
+                Err(e) => println!("  ✗ Failed to apply {}: {}", patch.description, e),
+            }
         }
         println!();
-        println!("  ✓ {} patches applied", patches.len());
-        if verify {
-            println!("  [VERIFY] Zeus formal verification not yet wired — run:");
-            println!("           zeus-shield verify <patch-file>");
-        }
+        println!("  {} of {} patches applied.", applied, patches.len());
     } else {
         println!("  {} patches ready. Re-run with --auto to apply.", patches.len());
+        println!("  Add --verify to run Zeus formal verification before applying.");
     }
 
     Ok(())
@@ -296,9 +328,69 @@ async fn cmd_verify(
     path: &PathBuf,
     properties: &[String],
 ) -> Result<(), Box<dyn std::error::Error>> {
-    println!("[*] Verifying: {:?}", path);
-    println!("[*] Properties: {:?}", properties);
-    println!("[*] Zeus verification integration pending");
+    println!("╔══════════════════════════════════════════════════════╗");
+    println!("║         ZEUS SHIELD — Formal Verifier               ║");
+    println!("╚══════════════════════════════════════════════════════╝");
+    println!();
+
+    if !path.exists() {
+        eprintln!("  ✗ File not found: {:?}", path);
+        return Ok(());
+    }
+
+    let zeus_path = which_zeus();
+    if !zeus_path.exists() {
+        eprintln!("  ✗ Zeus binary not found. Set ZEUS_PATH or place zeus on PATH.");
+        return Ok(());
+    }
+
+    println!("  Zeus binary: {:?}", zeus_path);
+    println!("  File:        {:?}", path);
+    println!();
+
+    let verifier = ZeusVerifier::new(zeus_path);
+
+    // Read file content as the patch diff
+    let content = tokio::fs::read_to_string(path).await?;
+    let patch = Patch {
+        id: Uuid::new_v4(),
+        vuln_id: Uuid::nil(),
+        description: path.to_string_lossy().to_string(),
+        diff: content,
+        patch_type: PatchType::ZeusSource,
+        confidence: 1.0,
+        verified: false,
+        certificate: None,
+        created_at: chrono::Utc::now(),
+    };
+
+    // Check individual properties if requested
+    if !properties.is_empty() {
+        for prop in properties {
+            match verifier.check_property(&patch, prop).await {
+                Ok(true)  => println!("  ✓ Property '{prop}': PROVEN"),
+                Ok(false) => println!("  ✗ Property '{prop}': NOT PROVEN"),
+                Err(e)    => println!("  ! Property '{prop}': ERROR — {e}"),
+            }
+        }
+        println!();
+    }
+
+    // Full verification
+    println!("  Running zeus verify...");
+    match verifier.verify(&patch).await {
+        Ok(cert) => {
+            println!("  ✓ VERIFICATION PASSED");
+            println!("  Properties proven: {}", cert.properties_proven.join(", "));
+            println!("  Certificate ID:    {}", cert.id);
+            println!("  Signature (SHA256): {}", &cert.signature[..16]);
+            println!("  Issued at:         {}", cert.issued_at);
+        }
+        Err(e) => {
+            println!("  ✗ VERIFICATION FAILED");
+            println!("  Reason: {}", e);
+        }
+    }
     Ok(())
 }
 
@@ -306,9 +398,28 @@ async fn cmd_agent(
     console_url: Option<String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let url = console_url.unwrap_or_else(|| "http://localhost:8443".to_string());
-    println!("[*] Starting Zeus Shield Agent");
+    println!("[*] Launching zeus-shield-agent daemon");
     println!("[*] Reporting to: {}", url);
-    println!("[*] Agent daemon mode not yet implemented");
+
+    // Find agent binary alongside this binary
+    let exe = std::env::current_exe()?;
+    let agent_bin = exe.parent().unwrap().join("zeus-shield-agent");
+
+    if !agent_bin.exists() {
+        eprintln!("  ✗ zeus-shield-agent not found at {:?}", agent_bin);
+        eprintln!("    Run it directly: zeus-shield-agent --console-url {}", url);
+        return Ok(());
+    }
+
+    let status = tokio::process::Command::new(&agent_bin)
+        .arg("--console-url")
+        .arg(&url)
+        .status()
+        .await?;
+
+    if !status.success() {
+        eprintln!("  ✗ Agent exited with status: {}", status);
+    }
     Ok(())
 }
 
@@ -328,17 +439,28 @@ async fn cmd_status() -> Result<(), Box<dyn std::error::Error>> {
     println!("  Zeus compiler: checking...");
     
     // Check if Zeus compiler is available
-    let zeus_check = tokio::process::Command::new("zeus_compiler")
-        .arg("--version")
+    let zeus_path = which_zeus();
+    // Zeus prints its banner to stdout on any invocation (no --version flag)
+    let zeus_check = tokio::process::Command::new(&zeus_path)
         .output()
         .await;
-    
+
     match zeus_check {
-        Ok(output) if output.status.success() => {
-            println!("  Zeus compiler: ✓ available");
+        Ok(output) => {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let version_line = stdout.lines()
+                .find(|l| l.contains("Zeus") && l.contains("v"))
+                .unwrap_or("")
+                .trim()
+                .to_string();
+            println!("  Zeus compiler: ✓ {:?}", zeus_path);
+            if !version_line.is_empty() {
+                println!("                 {}", version_line);
+            }
         }
-        _ => {
-            println!("  Zeus compiler: ✗ not found (verification disabled)");
+        Err(_) => {
+            println!("  Zeus compiler: ✗ not found at {:?} (verification disabled)", zeus_path);
+            println!("                 Set ZEUS_PATH=/path/to/zeus to enable verification.");
         }
     }
 
@@ -359,6 +481,72 @@ async fn cmd_status() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     Ok(())
+}
+
+/// Locate the zeus binary: $ZEUS_PATH env var, next to this exe, or 'zeus' on PATH
+fn which_zeus() -> std::path::PathBuf {
+    if let Ok(p) = std::env::var("ZEUS_PATH") {
+        return std::path::PathBuf::from(p);
+    }
+    if let Ok(exe) = std::env::current_exe() {
+        let sibling = exe.parent().unwrap_or(std::path::Path::new(".")).join("zeus");
+        if sibling.exists() {
+            return sibling;
+        }
+    }
+    // Last resort: rely on PATH
+    std::path::PathBuf::from("zeus")
+}
+
+/// Apply a patch to the real system.
+/// FirewallRule patches: writes a shell script to /etc/zeus-shield/patches/ and executes it.
+/// ConfigChange patches: same execution model.
+/// Requires root for firewall operations; returns descriptive error if not.
+async fn apply_patch_to_system(patch: &Patch) -> Result<String, String> {
+    if patch.diff.is_empty() {
+        return Err(format!("Patch {} has empty diff", patch.id));
+    }
+
+    // Write patch script to a known directory
+    let patch_dir = std::path::Path::new("/etc/zeus-shield/patches");
+    let local_dir = std::path::PathBuf::from(
+        std::env::var("HOME").unwrap_or_default() + "/.zeus-shield/patches"
+    );
+    let dir = if patch_dir.exists() || std::fs::create_dir_all(patch_dir).is_ok() {
+        patch_dir.to_path_buf()
+    } else {
+        std::fs::create_dir_all(&local_dir).ok();
+        local_dir
+    };
+
+    let script_path = dir.join(format!("patch-{}.sh", patch.id));
+    tokio::fs::write(&script_path, &patch.diff)
+        .await
+        .map_err(|e| format!("Write failed: {}", e))?;
+
+    // Make executable
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = tokio::fs::metadata(&script_path).await
+            .map_err(|e| e.to_string())?.permissions();
+        perms.set_mode(0o750);
+        tokio::fs::set_permissions(&script_path, perms).await.ok();
+    }
+
+    // Execute with sh
+    let output = tokio::process::Command::new("sh")
+        .arg(&script_path)
+        .output()
+        .await
+        .map_err(|e| format!("Execution failed: {}", e))?;
+
+    if output.status.success() {
+        Ok(format!("{} (script: {:?})", patch.description, script_path))
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        Err(format!("Script failed: {}", stderr.trim()))
+    }
 }
 
 fn parse_port_range(range: &str) -> (u16, u16) {

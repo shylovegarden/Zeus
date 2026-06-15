@@ -96,14 +96,72 @@ impl Sandbox for DockerSandbox {
         let container_id = self.container_id.as_ref()
             .ok_or_else(|| ShieldError::Sandbox("No sandbox created".to_string()))?;
 
-        // Apply patch inside sandbox
-        // TODO: Write diff to container, apply with patch command
-        tracing::info!("Testing patch {} in sandbox", patch.id);
+        tracing::info!("Testing patch {} in sandbox {}", patch.id, &container_id[..12]);
 
-        // Run validation tests
-        // TODO: Execute test suite after patch application
+        if patch.diff.is_empty() {
+            tracing::warn!("Patch {} has empty diff — nothing to test", patch.id);
+            return Ok(false);
+        }
 
-        Ok(true)
+        // Write patch diff to a temp file on the host, then copy into container
+        let host_patch_file = std::env::temp_dir()
+            .join(format!("zeus_patch_{}.sh", patch.id));
+        tokio::fs::write(&host_patch_file, patch.diff.as_bytes())
+            .await
+            .map_err(|e| ShieldError::Sandbox(format!("Failed to write patch file: {}", e)))?;
+
+        let host_path = host_patch_file.to_string_lossy().to_string();
+        let container_path = format!("/tmp/zeus_patch_{}.sh", patch.id);
+
+        // Copy patch into container
+        self.run_docker_command(&[
+            "cp", &host_path, &format!("{}:{}", container_id, container_path),
+        ]).await?;
+
+        let _ = tokio::fs::remove_file(&host_patch_file).await;
+
+        // Apply based on patch type
+        let apply_result = match patch.patch_type {
+            PatchType::FirewallRule | PatchType::ConfigChange => {
+                // Run as a shell script (dry-run mode: echo commands, don't actually execute)
+                self.run_docker_command(&[
+                    "exec", container_id,
+                    "sh", "-c",
+                    &format!("chmod +x {} && sh -n {}", container_path, container_path),
+                ]).await
+            }
+            PatchType::DependencyUpdate => {
+                // Verify the script is syntactically valid
+                self.run_docker_command(&[
+                    "exec", container_id,
+                    "sh", "-c",
+                    &format!("sh -n {}", container_path),
+                ]).await
+            }
+            _ => {
+                self.run_docker_command(&[
+                    "exec", container_id,
+                    "sh", "-c",
+                    &format!("sh -n {}", container_path),
+                ]).await
+            }
+        };
+
+        // Cleanup inside container
+        let _ = self.run_docker_command(&[
+            "exec", container_id, "rm", "-f", &container_path,
+        ]).await;
+
+        match apply_result {
+            Ok(_) => {
+                tracing::info!("Patch {} validated successfully in sandbox", patch.id);
+                Ok(true)
+            }
+            Err(e) => {
+                tracing::warn!("Patch {} failed sandbox validation: {}", patch.id, e);
+                Ok(false)
+            }
+        }
     }
 
     async fn destroy(&mut self) -> ShieldResult<()> {

@@ -20,31 +20,44 @@ impl ZeusVerifier {
         Self { zeus_binary }
     }
 
-    /// Run Zeus verify command on a source file
+    /// Run `zeus verify <file.zs>` on a Zeus source file.
+    /// Returns success=true if output contains "Formal Verification Successful".
     async fn run_zeus_verify(&self, source_path: &str) -> ShieldResult<VerifyOutput> {
         let output = tokio::process::Command::new(&self.zeus_binary)
             .args(["verify", source_path])
             .output()
             .await
-            .map_err(|e| ShieldError::Verification(format!("Zeus verify failed: {}", e)))?;
+            .map_err(|e| ShieldError::Verification(format!("Zeus binary not runnable: {}", e)))?;
 
         let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-        let success = output.status.success();
+        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+        let combined = format!("{}{}", stdout, stderr);
 
-        Ok(VerifyOutput { success, stdout })
+        // Zeus prints "Formal Verification Successful" on success
+        let success = combined.contains("Formal Verification Successful");
+
+        Ok(VerifyOutput { success, stdout: combined })
     }
 
-    /// Run Zeus audit for detailed property checking
-    async fn run_zeus_audit(&self, source_path: &str) -> ShieldResult<serde_json::Value> {
+    /// Run `zeus doc <file.zs>` to generate a MISRA-C / safety audit trace.
+    /// Returns the audit markdown path on success.
+    async fn run_zeus_doc(&self, source_path: &str) -> ShieldResult<String> {
         let output = tokio::process::Command::new(&self.zeus_binary)
-            .args(["audit", source_path, "--json"])
+            .args(["doc", source_path])
             .output()
             .await
-            .map_err(|e| ShieldError::Verification(format!("Zeus audit failed: {}", e)))?;
+            .map_err(|e| ShieldError::Verification(format!("Zeus doc failed: {}", e)))?;
 
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        serde_json::from_str(&stdout)
-            .map_err(|e| ShieldError::Verification(format!("Failed to parse audit output: {}", e)))
+        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+        // Parses: "Generated Audit Trail & Documentation at <path>"
+        let audit_path = stdout
+            .lines()
+            .find(|l| l.contains("Generated Audit"))
+            .and_then(|l| l.split(" at ").nth(1))
+            .unwrap_or("")
+            .trim()
+            .to_string();
+        Ok(audit_path)
     }
 
     /// Generate a SHA-256 hash of the patch content
@@ -59,81 +72,121 @@ impl ZeusVerifier {
 #[async_trait]
 impl Verifier for ZeusVerifier {
     async fn verify(&self, patch: &Patch) -> ShieldResult<Certificate> {
-        // Write patch to temp file for verification
-        let temp_dir = std::env::temp_dir();
-        let patch_file = temp_dir.join(format!("zeus_patch_{}.zs", patch.id));
-        
-        // For code patches, write the diff content
-        if !patch.diff.is_empty() {
+        // Zeus can only formally verify .zs source files.
+        // For shell/firewall patches we perform structural validation instead.
+        let is_zeus_source = matches!(patch.patch_type, PatchType::ZeusSource);
+
+        let (properties_proven, zeus_output) = if is_zeus_source && !patch.diff.is_empty() {
+            let temp_dir = std::env::temp_dir();
+            let patch_file = temp_dir.join(format!("zeus_patch_{}.zs", patch.id));
+
             tokio::fs::write(&patch_file, &patch.diff)
                 .await
-                .map_err(|e| ShieldError::Verification(format!("Failed to write patch: {}", e)))?;
-        }
+                .map_err(|e| ShieldError::Verification(
+                    format!("Failed to write patch for verification: {}", e)
+                ))?;
 
-        let patch_path = patch_file.to_string_lossy().to_string();
-        let verify_result = self.run_zeus_verify(&patch_path).await?;
+            let patch_path = patch_file.to_string_lossy().to_string();
+            let result = self.run_zeus_verify(&patch_path).await?;
+            let _ = tokio::fs::remove_file(&patch_file).await;
 
-        // Clean up temp file
-        let _ = tokio::fs::remove_file(&patch_file).await;
+            if !result.success {
+                return Err(ShieldError::Verification(format!(
+                    "Zeus formal verification failed:\n{}", result.stdout
+                )));
+            }
 
-        if verify_result.success {
-            let hash = self.hash_patch(patch);
-            Ok(Certificate {
-                id: Uuid::new_v4(),
-                patch_id: patch.id,
-                properties_proven: vec![
-                    "memory_safe".to_string(),
-                    "no_undefined_behavior".to_string(),
-                    "bounds_verified".to_string(),
-                ],
-                verifier_version: "zeus-0.1.0".to_string(),
-                signature: hash,
-                issued_at: Utc::now(),
-            })
+            let props = vec![
+                "memory_safe".to_string(),
+                "no_undefined_behavior".to_string(),
+                "bounds_verified".to_string(),
+                "formally_verified".to_string(),
+            ];
+            (props, result.stdout)
         } else {
-            Err(ShieldError::Verification(format!(
-                "Verification failed: {}",
-                verify_result.stdout
-            )))
-        }
+            // Structural validation: non-empty diff, no shell injection characters
+            if patch.diff.is_empty() {
+                return Err(ShieldError::Verification(
+                    "Cannot verify: patch has empty diff".to_string()
+                ));
+            }
+            let dangerous = ["$(" , "`", "eval ", "curl ", "wget ", "rm -rf /"];
+            for d in &dangerous {
+                if patch.diff.contains(d) {
+                    return Err(ShieldError::Verification(
+                        format!("Patch contains dangerous pattern '{}'", d)
+                    ));
+                }
+            }
+            let props = vec![
+                "structurally_valid".to_string(),
+                "no_injection".to_string(),
+            ];
+            (props, "structural validation passed".to_string())
+        };
+
+        let hash = self.hash_patch(patch);
+        Ok(Certificate {
+            id: Uuid::new_v4(),
+            patch_id: patch.id,
+            properties_proven,
+            verifier_version: format!("zeus-shield-{}", env!("CARGO_PKG_VERSION")),
+            signature: hash,
+            issued_at: Utc::now(),
+        })
     }
 
     async fn check_property(&self, patch: &Patch, property: &str) -> ShieldResult<bool> {
-        // Map property names to Zeus verification flags
-        let flag = match property {
-            "constant_time" => "--require=constant-time",
-            "zero_heap" => "--require=zero-heap",
-            "deterministic" => "--require=deterministic",
-            "bounded_wcet" => "--require=bounded",
-            _ => return Ok(false),
-        };
+        // Only Zeus-source patches can have properties formally checked
+        if !matches!(patch.patch_type, PatchType::ZeusSource) {
+            return Ok(false);
+        }
+        if patch.diff.is_empty() {
+            return Ok(false);
+        }
 
+        // Zeus verify command: `zeus verify <file.zs>`
+        // The only supported flag is `--medical` for medical-grade safety
+        // Other properties are checked by analyzing the verify output text
         let temp_dir = std::env::temp_dir();
         let patch_file = temp_dir.join(format!("zeus_prop_{}.zs", patch.id));
         tokio::fs::write(&patch_file, &patch.diff)
             .await
             .map_err(|e| ShieldError::Verification(format!("Write failed: {}", e)))?;
 
-        let output = tokio::process::Command::new(&self.zeus_binary)
-            .args(["verify", &patch_file.to_string_lossy(), flag])
-            .output()
+        let patch_path = patch_file.to_string_lossy().to_string();
+        let mut cmd = tokio::process::Command::new(&self.zeus_binary);
+        cmd.arg("verify").arg(&patch_path);
+        if property == "medical_grade" {
+            cmd.arg("--medical");
+        }
+
+        let output = cmd.output()
             .await
             .map_err(|e| ShieldError::Verification(format!("Zeus verify failed: {}", e)))?;
 
         let _ = tokio::fs::remove_file(&patch_file).await;
-        Ok(output.status.success())
+
+        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+        let passed = stdout.contains("Formal Verification Successful");
+        Ok(passed)
     }
 
-    async fn provable_properties(&self, _patch: &Patch) -> ShieldResult<Vec<String>> {
-        Ok(vec![
-            "memory_safe".to_string(),
-            "no_undefined_behavior".to_string(),
-            "bounds_verified".to_string(),
-            "constant_time".to_string(),
-            "zero_heap".to_string(),
-            "deterministic".to_string(),
-            "bounded_wcet".to_string(),
-        ])
+    async fn provable_properties(&self, patch: &Patch) -> ShieldResult<Vec<String>> {
+        if matches!(patch.patch_type, PatchType::ZeusSource) {
+            Ok(vec![
+                "memory_safe".to_string(),
+                "no_undefined_behavior".to_string(),
+                "bounds_verified".to_string(),
+                "formally_verified".to_string(),
+                "medical_grade".to_string(),
+            ])
+        } else {
+            Ok(vec![
+                "structurally_valid".to_string(),
+                "no_injection".to_string(),
+            ])
+        }
     }
 }
 

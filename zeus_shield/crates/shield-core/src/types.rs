@@ -109,6 +109,7 @@ pub struct Patch {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum PatchType {
     CodeFix,
+    ZeusSource,
     ConfigChange,
     DependencyUpdate,
     FirewallRule,

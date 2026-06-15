@@ -3,7 +3,10 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
+use shield_core::traits::{Patcher, Scanner};
 use shield_core::types::*;
+use shield_patch::PatchEngine;
+use shield_scanner::NetworkScanner;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tower_http::cors::CorsLayer;
@@ -148,13 +151,55 @@ async fn list_patches(State(state): State<AppState>) -> Json<Vec<Patch>> {
 
 async fn generate_patch(
     State(state): State<AppState>,
-    Json(vuln_id): Json<serde_json::Value>,
+    Json(body): Json<serde_json::Value>,
 ) -> Json<serde_json::Value> {
-    // TODO: Integrate with PatchEngine
-    Json(serde_json::json!({
-        "status": "patch_generation_queued",
-        "vuln_id": vuln_id,
-    }))
+    // Find vulnerability by id from state
+    let vuln_id_str = body.get("vuln_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+
+    let vuln = {
+        let vulns = state.vulnerabilities.read().await;
+        vulns.iter()
+            .find(|v| v.id.to_string() == vuln_id_str)
+            .cloned()
+    };
+
+    let vuln = match vuln {
+        Some(v) => v,
+        None => return Json(serde_json::json!({
+            "error": format!("Vulnerability {} not found", vuln_id_str)
+        })),
+    };
+
+    let engine = PatchEngine::new();
+    if !engine.can_fix(&vuln) {
+        return Json(serde_json::json!({
+            "status": "no_fix_available",
+            "vuln_id": vuln_id_str,
+            "title": vuln.title,
+        }));
+    }
+
+    match engine.generate_patch(&vuln).await {
+        Ok(patch) => {
+            let patch_id = patch.id;
+            state.patches.write().await.push(patch.clone());
+            Json(serde_json::json!({
+                "status": "generated",
+                "patch_id": patch_id,
+                "vuln_id": vuln_id_str,
+                "description": patch.description,
+                "confidence": patch.confidence,
+                "patch_type": format!("{:?}", patch.patch_type),
+                "diff": patch.diff,
+            }))
+        }
+        Err(e) => Json(serde_json::json!({
+            "error": format!("Patch generation failed: {}", e),
+            "vuln_id": vuln_id_str,
+        }))
+    }
 }
 
 async fn health_check() -> Json<serde_json::Value> {
