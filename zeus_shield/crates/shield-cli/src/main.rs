@@ -126,41 +126,38 @@ async fn cmd_scan(
     println!("╚══════════════════════════════════════════════════════╝");
     println!();
 
-    let t = shield_core::types::Target {
-        id: Uuid::new_v4(),
-        name: target.to_string(),
-        kind: shield_core::types::TargetKind::Host,
-        address: target.to_string(),
-        metadata: serde_json::json!({}),
-        created_at: chrono::Utc::now(),
-    };
+    // Expand CIDR range (e.g. 192.168.1.0/24) into individual host targets
+    let targets = expand_targets(target);
+    println!("[*] Scanning {} target(s)", targets.len());
 
     let mut all_vulns = Vec::new();
 
-    match scan_type {
-        "network" | "full" => {
-            let (start, end) = parse_port_range(ports);
-            let scanner = NetworkScanner::new()
-                .with_port_range(start, end)
-                .with_concurrency(200);
-            
-            println!("[*] Network scan: {} (ports {}-{})", target, start, end);
-            let vulns = scanner.scan(&t).await?;
-            println!("[+] Found {} network vulnerabilities", vulns.len());
-            all_vulns.extend(vulns);
-        }
-        _ => {}
-    }
+    for t in &targets {
+        match scan_type {
+            "network" | "full" => {
+                let (start, end) = parse_port_range(ports);
+                let scanner = NetworkScanner::new()
+                    .with_port_range(start, end)
+                    .with_concurrency(200);
 
-    match scan_type {
-        "device" | "full" => {
-            let scanner = DeviceScanner::new();
-            println!("[*] Device scan: local system");
-            let vulns = scanner.scan(&t).await?;
-            println!("[+] Found {} device vulnerabilities", vulns.len());
-            all_vulns.extend(vulns);
+                println!("[*] Network scan: {} (ports {}-{})", t.address, start, end);
+                let vulns = scanner.scan(t).await?;
+                println!("[+] Found {} network vulnerabilities on {}", vulns.len(), t.address);
+                all_vulns.extend(vulns);
+            }
+            _ => {}
         }
-        _ => {}
+
+        match scan_type {
+            "device" | "full" => {
+                let scanner = DeviceScanner::new();
+                println!("[*] Device scan: local system");
+                let vulns = scanner.scan(t).await?;
+                println!("[+] Found {} device vulnerabilities", vulns.len());
+                all_vulns.extend(vulns);
+            }
+            _ => {}
+        }
     }
 
     println!();
@@ -547,6 +544,67 @@ async fn apply_patch_to_system(patch: &Patch) -> Result<String, String> {
         let stderr = String::from_utf8_lossy(&output.stderr);
         Err(format!("Script failed: {}", stderr.trim()))
     }
+}
+
+/// Expand a target string into one or more `Target` structs.
+/// Supports:
+///   - Single host:  "192.168.1.1" or "example.com"
+///   - CIDR /24:     "192.168.1.0/24"  → 192.168.1.1–254
+///   - CIDR /16:     "10.0.0.0/16"     → 10.0.0.1–254 for each 10.0.x.0
+fn expand_targets(input: &str) -> Vec<shield_core::types::Target> {
+    use shield_core::types::{Target, TargetKind};
+
+    let make_target = |addr: String| Target {
+        id: Uuid::new_v4(),
+        name: addr.clone(),
+        kind: TargetKind::Host,
+        address: addr,
+        metadata: serde_json::json!({}),
+        created_at: chrono::Utc::now(),
+    };
+
+    // Check for CIDR notation
+    if let Some(slash_pos) = input.rfind('/') {
+        let ip_part = &input[..slash_pos];
+        let prefix: u8 = input[slash_pos + 1..].parse().unwrap_or(32);
+        let octets: Vec<&str> = ip_part.splitn(4, '.').collect();
+
+        if octets.len() == 4 {
+            let o1: u16 = octets[0].parse().unwrap_or(0);
+            let o2: u16 = octets[1].parse().unwrap_or(0);
+            let o3: u16 = octets[2].parse().unwrap_or(0);
+
+            match prefix {
+                24 => {
+                    return (1u8..=254).map(|i| {
+                        make_target(format!("{}.{}.{}.{}", o1, o2, o3, i))
+                    }).collect();
+                }
+                16 => {
+                    let mut targets = Vec::new();
+                    for third in 0u8..=255 {
+                        for host in 1u8..=254 {
+                            targets.push(make_target(
+                                format!("{}.{}.{}.{}", o1, o2, third, host)
+                            ));
+                        }
+                    }
+                    return targets;
+                }
+                _ => {} // Fall through to single host
+            }
+        }
+    }
+
+    // Comma-separated list: "192.168.1.1,192.168.1.2"
+    if input.contains(',') {
+        return input.split(',')
+            .map(|s| make_target(s.trim().to_string()))
+            .collect();
+    }
+
+    // Single host
+    vec![make_target(input.to_string())]
 }
 
 fn parse_port_range(range: &str) -> (u16, u16) {

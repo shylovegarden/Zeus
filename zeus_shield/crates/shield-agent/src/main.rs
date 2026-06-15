@@ -132,6 +132,12 @@ async fn run_daemon(
 ) -> Result<(), Box<dyn std::error::Error>> {
     info!("Daemon mode — heartbeat every {}s", cli.interval);
 
+    // Spawn a lightweight HTTP server to accept jobs pushed by the console
+    let reporter_arc = std::sync::Arc::new(reporter.clone());
+    tokio::spawn(async move {
+        run_job_server(reporter_arc).await;
+    });
+
     let mut tick = tokio::time::interval(
         tokio::time::Duration::from_secs(cli.interval)
     );
@@ -205,6 +211,53 @@ async fn execute_job(reporter: &ConsoleReporter, cli: &Cli, job: &serde_json::Va
 
     info!("Job {} complete: {} findings", job_id, vulns.len());
     reporter.report_vulnerabilities(&vulns).await;
+}
+
+/// Lightweight HTTP server on :9443 so the console can push jobs directly
+async fn run_job_server(reporter: std::sync::Arc<ConsoleReporter>) {
+    use axum::{extract::State, routing::post, Json, Router};
+
+    async fn handle_run_job(
+        State(reporter): State<std::sync::Arc<ConsoleReporter>>,
+        Json(job): Json<serde_json::Value>,
+    ) -> Json<serde_json::Value> {
+        let job_id = job.get("id").and_then(|v| v.as_str()).unwrap_or("?").to_string();
+        let job_type = job.get("scan_type").and_then(|v| v.as_str()).unwrap_or("network").to_string();
+        let target_addr = job.get("target").and_then(|v| v.as_str()).unwrap_or("localhost").to_string();
+
+        info!("Received push job {} type={} target={}", job_id, job_type, target_addr);
+
+        let reporter_clone = reporter.clone();
+        tokio::spawn(async move {
+            let cli_stub = Cli {
+                config: std::path::PathBuf::from("/etc/zeus-shield/agent.toml"),
+                console_url: reporter_clone.console_url.clone(),
+                once: true,
+                target: Some(target_addr.clone()),
+                ports: "1-1024".to_string(),
+                interval: 30,
+            };
+            execute_job(&reporter_clone, &cli_stub, &serde_json::json!({
+                "id": job_id,
+                "scan_type": job_type,
+                "target": target_addr,
+            })).await;
+        });
+
+        Json(serde_json::json!({ "status": "accepted" }))
+    }
+
+    let app = Router::new()
+        .route("/run-job", post(handle_run_job))
+        .with_state(reporter);
+
+    let addr = "0.0.0.0:9443";
+    info!("Agent job server listening on {}", addr);
+    if let Ok(listener) = tokio::net::TcpListener::bind(addr).await {
+        let _ = axum::serve(listener, app).await;
+    } else {
+        warn!("Failed to bind agent job server on {}", addr);
+    }
 }
 
 fn parse_port_range(s: &str) -> (u16, u16) {

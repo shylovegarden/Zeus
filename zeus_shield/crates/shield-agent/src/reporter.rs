@@ -3,9 +3,10 @@ use shield_core::types::{AgentInfo, AgentStatus, Vulnerability};
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
+#[derive(Clone)]
 pub struct ConsoleReporter {
     client: Client,
-    console_url: String,
+    pub console_url: String,
     agent_id: Uuid,
     hostname: String,
 }

@@ -22,3 +22,5 @@ chrono.workspace = true
 thiserror.workspace = true
 reqwest.workspace = true
 clap.workspace = true
+axum.workspace = true
+tower.workspace = true

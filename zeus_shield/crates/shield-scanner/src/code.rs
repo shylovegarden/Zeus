@@ -79,12 +79,131 @@ impl CodeScanner {
         Ok(vulns)
     }
 
-    /// Check dependencies for known CVEs
-    async fn check_dependencies(&self, manifest_path: &str) -> ShieldResult<Vec<Vulnerability>> {
-        // TODO: Implement dependency CVE checking
-        // Parse Cargo.toml/package.json/requirements.txt
-        // Cross-reference with NVD/OSV database
-        Ok(vec![])
+    /// Check dependencies for known CVEs via OSV API
+    async fn check_dependencies(&self, path: &str) -> ShieldResult<Vec<Vulnerability>> {
+        let base = std::path::Path::new(path);
+
+        // Collect (ecosystem, package_name) pairs from manifest files
+        let mut packages: Vec<(String, String)> = Vec::new();
+
+        // Cargo.toml
+        let cargo_path = if base.is_dir() {
+            base.join("Cargo.toml")
+        } else {
+            base.to_path_buf()
+        };
+        if cargo_path.exists() {
+            if let Ok(content) = tokio::fs::read_to_string(&cargo_path).await {
+                parse_cargo_toml(&content, &mut packages);
+            }
+        }
+
+        // package.json
+        let pkg_path = if base.is_dir() { base.join("package.json") } else { base.to_path_buf() };
+        if pkg_path.exists() && pkg_path.to_string_lossy().ends_with("package.json") {
+            if let Ok(content) = tokio::fs::read_to_string(&pkg_path).await {
+                parse_package_json(&content, &mut packages);
+            }
+        }
+
+        // requirements.txt
+        let req_path = if base.is_dir() { base.join("requirements.txt") } else { base.to_path_buf() };
+        if req_path.exists() && req_path.to_string_lossy().ends_with("requirements.txt") {
+            if let Ok(content) = tokio::fs::read_to_string(&req_path).await {
+                parse_requirements_txt(&content, &mut packages);
+            }
+        }
+
+        if packages.is_empty() {
+            return Ok(vec![]);
+        }
+
+        tracing::info!("Checking {} packages against OSV", packages.len());
+
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(15))
+            .build()
+            .map_err(|e| shield_core::error::ShieldError::Scan(e.to_string()))?;
+
+        let mut vulns = Vec::new();
+
+        for (ecosystem, pkg_name) in &packages {
+            let body = serde_json::json!({
+                "package": { "name": pkg_name, "ecosystem": ecosystem }
+            });
+
+            let resp = client
+                .post("https://api.osv.dev/v1/query")
+                .json(&body)
+                .send()
+                .await;
+
+            let json: serde_json::Value = match resp {
+                Ok(r) if r.status().is_success() => r.json().await.unwrap_or_default(),
+                _ => continue,
+            };
+
+            let advisories = match json.get("vulns").and_then(|v| v.as_array()) {
+                Some(a) if !a.is_empty() => a,
+                _ => continue,
+            };
+
+            for adv in advisories {
+                let osv_id = adv.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                let summary = adv.get("summary").and_then(|v| v.as_str())
+                    .unwrap_or("Vulnerable dependency").to_string();
+                let details = adv.get("details").and_then(|v| v.as_str())
+                    .unwrap_or("").to_string();
+
+                // Detect CVE alias
+                let cve_id = adv.get("aliases")
+                    .and_then(|a| a.as_array())
+                    .and_then(|arr| arr.iter().find(|s| {
+                        s.as_str().map(|x| x.starts_with("CVE-")).unwrap_or(false)
+                    }))
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
+
+                // Derive severity from CVSS if present
+                let severity = adv.get("severity")
+                    .and_then(|s| s.as_array())
+                    .and_then(|arr| arr.first())
+                    .and_then(|entry| entry.get("score").and_then(|s| s.as_f64()))
+                    .map(|score| {
+                        if score >= 9.0 { Severity::Critical }
+                        else if score >= 7.0 { Severity::High }
+                        else if score >= 4.0 { Severity::Medium }
+                        else { Severity::Low }
+                    })
+                    .unwrap_or(Severity::Medium);
+
+                vulns.push(Vulnerability {
+                    id: Uuid::new_v4(),
+                    target_id: Uuid::nil(),
+                    title: format!("{}: {} ({})", pkg_name, summary, osv_id),
+                    description: if details.is_empty() { summary.clone() } else { details },
+                    severity,
+                    category: VulnCategory::SupplyChain,
+                    cve_id,
+                    cvss_score: None,
+                    evidence: Evidence {
+                        raw: format!("OSV advisory {} for {} ({})", osv_id, pkg_name, ecosystem),
+                        reproduction_steps: vec![
+                            format!("Package: {} ({})", pkg_name, ecosystem),
+                            format!("Advisory: https://osv.dev/vulnerability/{}", osv_id),
+                        ],
+                        affected_component: pkg_name.clone(),
+                        network_trace: None,
+                    },
+                    status: VulnStatus::Open,
+                    discovered_at: Utc::now(),
+                    fixed_at: None,
+                });
+            }
+        }
+
+        tracing::info!("Found {} dependency CVEs", vulns.len());
+        Ok(vulns)
     }
 
     /// Detect hardcoded secrets in source files
@@ -124,7 +243,25 @@ impl Scanner for CodeScanner {
     }
 
     async fn discover(&self) -> ShieldResult<Vec<Target>> {
-        Ok(vec![])
+        // Walk CWD and $HOME for directories containing a source manifest
+        let search_roots = {
+            let mut roots = vec![std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."))];
+            if let Ok(home) = std::env::var("HOME") {
+                roots.push(std::path::PathBuf::from(home));
+            }
+            roots
+        };
+
+        let manifest_names = ["Cargo.toml", "package.json", "requirements.txt", "go.mod", "pom.xml"];
+        let mut targets = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+
+        for root in search_roots {
+            find_repos(&root, &manifest_names, 4, &mut targets, &mut seen);
+        }
+
+        tracing::info!("CodeScanner discovered {} source repositories", targets.len());
+        Ok(targets)
     }
 
     async fn scan(&self, target: &Target) -> ShieldResult<Vec<Vulnerability>> {
@@ -269,6 +406,109 @@ fn extract_keyword(pattern: &str) -> String {
             .take(10)
             .collect::<String>()
             .to_lowercase()
+    }
+}
+
+/// Parse [dependencies] block from Cargo.toml into (ecosystem, name) pairs
+fn parse_cargo_toml(content: &str, out: &mut Vec<(String, String)>) {
+    let mut in_deps = false;
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if trimmed == "[dependencies]" || trimmed == "[dev-dependencies]" || trimmed == "[build-dependencies]" {
+            in_deps = true;
+            continue;
+        }
+        if trimmed.starts_with('[') {
+            in_deps = false;
+            continue;
+        }
+        if in_deps {
+            if let Some(name) = trimmed.split('=').next() {
+                let name = name.trim().trim_matches('"');
+                if !name.is_empty() && !name.starts_with('#') {
+                    out.push(("crates.io".to_string(), name.to_string()));
+                }
+            }
+        }
+    }
+}
+
+/// Parse dependencies from package.json into (ecosystem, name) pairs
+fn parse_package_json(content: &str, out: &mut Vec<(String, String)>) {
+    if let Ok(json) = serde_json::from_str::<serde_json::Value>(content) {
+        for key in &["dependencies", "devDependencies", "peerDependencies"] {
+            if let Some(deps) = json.get(key).and_then(|d| d.as_object()) {
+                for name in deps.keys() {
+                    out.push(("npm".to_string(), name.clone()));
+                }
+            }
+        }
+    }
+}
+
+/// Parse requirements.txt into (ecosystem, name) pairs
+fn parse_requirements_txt(content: &str, out: &mut Vec<(String, String)>) {
+    for line in content.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') || line.starts_with('-') {
+            continue;
+        }
+        // Strip version specifiers: requests>=2.0 → requests
+        let name = line
+            .split(|c: char| c == '>' || c == '<' || c == '=' || c == '!' || c == '[' || c == ';')
+            .next()
+            .unwrap_or(line)
+            .trim();
+        if !name.is_empty() {
+            out.push(("PyPI".to_string(), name.to_string()));
+        }
+    }
+}
+
+/// Recursively find directories containing source manifests, up to `max_depth`
+fn find_repos(
+    dir: &std::path::Path,
+    manifests: &[&str],
+    max_depth: usize,
+    out: &mut Vec<Target>,
+    seen: &mut std::collections::HashSet<std::path::PathBuf>,
+) {
+    if max_depth == 0 { return; }
+
+    // Skip hidden dirs, node_modules, target, .git, venv
+    let dir_name = dir.file_name().and_then(|n| n.to_str()).unwrap_or("");
+    if dir_name.starts_with('.') || dir_name == "node_modules" || dir_name == "target"
+        || dir_name == "venv" || dir_name == "__pycache__" {
+        return;
+    }
+
+    let canonical = match dir.canonicalize() {
+        Ok(p) => p,
+        Err(_) => return,
+    };
+    if !seen.insert(canonical.clone()) { return; }
+
+    for manifest in manifests {
+        if dir.join(manifest).exists() {
+            out.push(Target {
+                id: uuid::Uuid::new_v4(),
+                name: canonical.to_string_lossy().to_string(),
+                kind: TargetKind::Repository,
+                address: canonical.to_string_lossy().to_string(),
+                metadata: serde_json::json!({ "manifest": manifest }),
+                created_at: chrono::Utc::now(),
+            });
+            return; // one target per dir, even if multiple manifests
+        }
+    }
+
+    if let Ok(entries) = std::fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                find_repos(&path, manifests, max_depth - 1, out, seen);
+            }
+        }
     }
 }
 
