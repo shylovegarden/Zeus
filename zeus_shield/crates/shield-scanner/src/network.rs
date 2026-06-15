@@ -111,8 +111,60 @@ impl Scanner for NetworkScanner {
     }
 
     async fn discover(&self) -> ShieldResult<Vec<Target>> {
-        // TODO: Implement ARP scan / mDNS discovery for local network
-        Ok(vec![])
+        let mut targets = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+
+        // 1. Read the local ARP table — instantaneous, no network traffic
+        let arp_hosts = read_arp_table().await;
+        for host in arp_hosts {
+            if seen.insert(host.clone()) {
+                targets.push(Target {
+                    id: Uuid::new_v4(),
+                    name: host.clone(),
+                    kind: TargetKind::Host,
+                    address: host,
+                    metadata: serde_json::json!({"source": "arp"}),
+                    created_at: Utc::now(),
+                });
+            }
+        }
+
+        // 2. Ping-sweep the local /24 derived from our primary interface IP
+        if let Some(local_ip) = get_local_ip() {
+            let parts: Vec<&str> = local_ip.splitn(4, '.').collect();
+            if parts.len() == 4 {
+                let prefix = format!("{}.{}.{}", parts[0], parts[1], parts[2]);
+                tracing::info!("Ping-sweeping {}.1-254", prefix);
+
+                // Concurrently ping all 254 addresses
+                let mut handles = Vec::new();
+                for i in 1u8..=254 {
+                    let addr = format!("{}.{}", prefix, i);
+                    handles.push(tokio::spawn(async move {
+                        let alive = ping_host(&addr).await;
+                        (addr, alive)
+                    }));
+                }
+
+                for handle in handles {
+                    if let Ok((addr, true)) = handle.await {
+                        if seen.insert(addr.clone()) {
+                            targets.push(Target {
+                                id: Uuid::new_v4(),
+                                name: addr.clone(),
+                                kind: TargetKind::Host,
+                                address: addr,
+                                metadata: serde_json::json!({"source": "ping_sweep"}),
+                                created_at: Utc::now(),
+                            });
+                        }
+                    }
+                }
+            }
+        }
+
+        tracing::info!("Discovered {} hosts", targets.len());
+        Ok(targets)
     }
 
     async fn scan(&self, target: &Target) -> ShieldResult<Vec<Vulnerability>> {
@@ -319,4 +371,87 @@ fn check_dangerous_service(port: u16, service: &str) -> Option<(String, String, 
         )),
         _ => None,
     }
+}
+
+/// Read the OS ARP table and return all known IP addresses
+async fn read_arp_table() -> Vec<String> {
+    #[cfg(unix)]
+    {
+        // `arp -a` on macOS/Linux prints lines like: host (192.168.1.1) at ...
+        let out = tokio::process::Command::new("arp")
+            .arg("-a")
+            .output()
+            .await;
+        let mut hosts = Vec::new();
+        if let Ok(o) = out {
+            for line in String::from_utf8_lossy(&o.stdout).lines() {
+                // Extract IP from parentheses: "? (192.168.1.1) at ..."
+                if let Some(start) = line.find('(') {
+                    if let Some(end) = line[start..].find(')') {
+                        let ip = &line[start + 1..start + end];
+                        // Skip incomplete entries (all-zero MACs)
+                        if !line.contains("(incomplete)") && !ip.is_empty() {
+                            hosts.push(ip.to_string());
+                        }
+                    }
+                }
+            }
+        }
+        hosts
+    }
+    #[cfg(not(unix))]
+    {
+        vec![]
+    }
+}
+
+/// Ping a single host; returns true if it responds within 300ms
+async fn ping_host(addr: &str) -> bool {
+    // Use the system `ping` with a 1-packet, 300ms timeout
+    #[cfg(target_os = "macos")]
+    let args = ["-c", "1", "-W", "300", addr];
+    #[cfg(target_os = "linux")]
+    let args = ["-c", "1", "-W", "1", addr]; // Linux -W is seconds
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    let args = ["-c", "1", addr];
+
+    tokio::process::Command::new("ping")
+        .args(&args)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .await
+        .map(|s| s.success())
+        .unwrap_or(false)
+}
+
+/// Return the primary non-loopback IPv4 address of this machine
+fn get_local_ip() -> Option<String> {
+    // Parse `ip route` (Linux) or `route get default` (macOS) to find local IP
+    let output = std::process::Command::new("hostname")
+        .arg("-I")  // Linux
+        .output();
+    if let Ok(o) = output {
+        let text = String::from_utf8_lossy(&o.stdout);
+        if let Some(ip) = text.split_whitespace().next() {
+            let ip = ip.to_string();
+            if ip.starts_with("192.") || ip.starts_with("10.") || ip.starts_with("172.") {
+                return Some(ip);
+            }
+        }
+    }
+
+    // macOS fallback: `ipconfig getifaddr en0`
+    for iface in &["en0", "en1", "eth0", "wlan0"] {
+        let out = std::process::Command::new("ipconfig")
+            .args(["getifaddr", iface])
+            .output();
+        if let Ok(o) = out {
+            let ip = String::from_utf8_lossy(&o.stdout).trim().to_string();
+            if !ip.is_empty() && !ip.starts_with("127.") {
+                return Some(ip);
+            }
+        }
+    }
+    None
 }

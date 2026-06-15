@@ -3,9 +3,10 @@ mod reporter;
 use clap::Parser;
 use reporter::ConsoleReporter;
 use shield_core::traits::Scanner;
-use shield_core::types::{AgentStatus, TargetKind};
+use shield_core::types::{AgentStatus, Target, TargetKind};
 use shield_scanner::{NetworkScanner, DeviceScanner};
 use std::path::PathBuf;
+use chrono;
 use tracing::{info, warn};
 use uuid::Uuid;
 
@@ -148,9 +149,62 @@ async fn run_daemon(
         let jobs = reporter.fetch_pending_jobs().await;
         if !jobs.is_empty() {
             info!("{} pending jobs from console", jobs.len());
-            // TODO: execute each job type
+            for job in jobs {
+                execute_job(&reporter, &cli, &job).await;
+            }
         }
     }
+}
+
+/// Execute a single console-assigned scan job
+async fn execute_job(reporter: &ConsoleReporter, cli: &Cli, job: &serde_json::Value) {
+    let job_id = job.get("id").and_then(|v| v.as_str()).unwrap_or("unknown");
+    let job_type = job.get("scan_type").and_then(|v| v.as_str()).unwrap_or("network");
+    let target_addr = job.get("target")
+        .and_then(|v| v.as_str())
+        .unwrap_or("localhost");
+
+    info!("Executing job {} type={} target={}", job_id, job_type, target_addr);
+
+    let target = Target {
+        id: Uuid::new_v4(),
+        name: target_addr.to_string(),
+        kind: match job_type {
+            "device" => TargetKind::Host,
+            "network" => TargetKind::Network,
+            _ => TargetKind::Host,
+        },
+        address: target_addr.to_string(),
+        metadata: serde_json::json!({"job_id": job_id}),
+        created_at: chrono::Utc::now(),
+    };
+
+    let vulns = match job_type {
+        "device" => {
+            let scanner = DeviceScanner::new();
+            match scanner.scan(&target).await {
+                Ok(v) => v,
+                Err(e) => {
+                    warn!("Device scan failed for job {}: {}", job_id, e);
+                    return;
+                }
+            }
+        }
+        _ => {
+            // Default: network scan
+            let scanner = NetworkScanner::new();
+            match scanner.scan(&target).await {
+                Ok(v) => v,
+                Err(e) => {
+                    warn!("Network scan failed for job {}: {}", job_id, e);
+                    return;
+                }
+            }
+        }
+    };
+
+    info!("Job {} complete: {} findings", job_id, vulns.len());
+    reporter.report_vulnerabilities(&vulns).await;
 }
 
 fn parse_port_range(s: &str) -> (u16, u16) {
