@@ -1,0 +1,20 @@
+name: Package connection questionnaire
+on:
+  push:
+    branches:
+      - codex/connection-questionnaire-download
+  workflow_dispatch:
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Package downloadable questionnaire
+        run: zip connection-personality-questionnaire.zip tools/connection-personality-questionnaire.html
+      - uses: actions/upload-artifact@v4
+        with:
+          name: connection-personality-questionnaire
+          path: connection-personality-questionnaire.zip
+          retention-days: 30
