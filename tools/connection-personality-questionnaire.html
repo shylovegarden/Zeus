@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#8d5060">
+<title>Connection & Personality Profile</title>
+<style>
+:root{--bg:#f8f1ed;--card:#fffdfa;--soft:#f4e5e3;--ink:#2d2425;--muted:#76696b;--accent:#8d5060;--dark:#5d303c;--line:#ead9d6;--shadow:0 16px 42px rgba(72,43,48,.11)}
+*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:radial-gradient(circle at top left,#f8dcda 0,transparent 34rem),var(--bg);color:var(--ink);font:16px/1.55 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+button,input,textarea{font:inherit}.shell{width:min(900px,calc(100% - 24px));margin:auto;padding:18px 0 110px}.hero{padding:34px;color:#fff;background:linear-gradient(145deg,#50303a,#9b5d70);border-radius:28px;box-shadow:var(--shadow)}
+.eyebrow{margin:0 0 7px;font-size:.76rem;font-weight:850;letter-spacing:.13em;text-transform:uppercase;opacity:.8}h1,h2{font-family:Georgia,serif;font-weight:500}h1{max-width:700px;margin:0;font-size:clamp(2.1rem,7vw,4rem);line-height:1.03}.hero>p:not(.eyebrow){max-width:680px;opacity:.9}
+.notice{margin-top:18px;padding:15px 17px;color:var(--ink);background:#fffdfbed;border-radius:15px}.panel{margin-top:18px;padding:24px;background:var(--card);border:1px solid var(--line);border-radius:22px;box-shadow:var(--shadow)}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:13px}.label{display:block;margin-bottom:6px;color:var(--muted);font-size:.85rem;font-weight:750}input[type=text],textarea{width:100%;border:1px solid var(--line);border-radius:13px;background:#fff;color:var(--ink);outline:none}
+input[type=text]{height:48px;padding:0 13px}textarea{min-height:112px;padding:13px;resize:vertical}input:focus,textarea:focus{border-color:var(--accent);box-shadow:0 0 0 3px #8d506022}
+.progress-copy{display:flex;justify-content:space-between;gap:16px;margin:18px 0 7px;color:var(--muted);font-size:.88rem}.track{height:10px;overflow:hidden;background:var(--soft);border-radius:99px}.bar{width:0;height:100%;background:linear-gradient(90deg,var(--accent),#d3919c);transition:.2s}
+.consent{display:flex;gap:11px;align-items:flex-start;margin-top:17px;padding:14px;background:var(--soft);border-radius:14px}.consent input{width:20px;height:20px;margin-top:2px;accent-color:var(--accent)}
+.section-tag{margin:0;color:var(--accent);font-size:.78rem;font-weight:850;letter-spacing:.1em;text-transform:uppercase}h2{margin:4px 0;font-size:2rem}.intro{margin:0;color:var(--muted)}
+.question{padding:20px 0;border-top:1px solid var(--line)}.question.first{border-top:0}.qtitle{display:flex;gap:11px;margin-bottom:11px;font-weight:720}.num{flex:0 0 31px;height:31px;display:grid;place-items:center;background:var(--soft);color:var(--dark);border-radius:50%;font-size:.8rem}
+.scale{display:grid;grid-template-columns:repeat(5,1fr);gap:7px}.scale input{position:absolute;opacity:0}.scale label{min-height:51px;display:grid;place-items:center;border:1px solid var(--line);border-radius:12px;color:var(--muted);background:#fff;cursor:pointer;transition:.15s}
+.scale input:checked+label{color:#fff;background:var(--accent);border-color:var(--accent);transform:translateY(-2px)}.legend{display:flex;justify-content:space-between;margin-top:6px;color:var(--muted);font-size:.71rem}
+[hidden]{display:none!important}.nav{position:fixed;z-index:5;right:0;bottom:0;left:0;padding:11px max(12px,calc((100vw - 880px)/2));background:#f8f1edef;border-top:1px solid var(--line);backdrop-filter:blur(14px)}.navin{display:flex;justify-content:space-between;gap:10px}
+button{min-height:48px;padding:0 19px;border:0;border-radius:13px;font-weight:800;cursor:pointer}.primary{color:#fff;background:var(--accent)}.secondary{color:var(--dark);background:var(--soft)}.danger{color:#852e35;background:#f9e0e2}button:disabled{opacity:.45;cursor:not-allowed}
+.results-grid{display:grid;grid-template-columns:1fr 1fr;gap:11px;margin-top:18px}.result{padding:17px;background:var(--soft);border-radius:15px}.result h3,.result p{margin:0}.result p{color:var(--muted)}.tools{display:flex;flex-wrap:wrap;gap:9px;margin-top:21px}.privacy{color:var(--muted);font-size:.84rem}#importFile{display:none}
+@media(max-width:620px){.shell{width:calc(100% - 16px);padding-top:8px}.hero,.panel{padding:20px;border-radius:20px}.grid,.results-grid{grid-template-columns:1fr}.scale{gap:4px}.scale label{min-height:47px}.nav{padding:9px}.nav button{flex:1;padding:0 10px}}
+@media print{body{background:#fff}.shell{width:100%;padding:0}.hero{color:var(--ink);background:#fff;box-shadow:none}.panel{display:block!important;box-shadow:none;break-inside:avoid}.nav,.tools,.consent,.privacy{display:none!important}}
+</style>
+</head>
+<body>
+<main class="shell">
+<header class="hero">
+<p class="eyebrow">Mutual discovery</p>
+<h1>Connection & Personality Profile</h1>
+<p>A private conversation guide for understanding personality, emotional needs, affection, boundaries, conflict and relationship direction.</p>
+<div class="notice"><strong>Not a clinical or diagnostic test.</strong> There are no correct answers. Both people should participate voluntarily, answer for themselves and be free to skip anything.</div>
+</header>
+
+<section class="panel">
+<div class="grid">
+<div><label class="label" for="person">Participant's name</label><input id="person" type="text" placeholder="Optional"></div>
+<div><label class="label" for="session">Connection or session name</label><input id="session" type="text" placeholder="Example: Our first profile"></div>
+</div>
+<div class="progress-copy"><span id="progress">0 of 50 answered</span><span id="saved">Saved privately on this device</span></div>
+<div class="track"><div id="bar" class="bar"></div></div>
+<label class="consent"><input id="consent" type="checkbox"><span>I understand the purpose, I am participating voluntarily, and I may skip or stop at any time.</span></label>
+</section>
+
+<div id="sections"></div>
+
+<section id="results" class="panel" hidden>
+<p class="section-tag">Reflection</p>
+<h2>Your connection profile</h2>
+<p class="intro">These observations are conversation starters—not diagnoses or permanent labels.</p>
+<div id="resultsGrid" class="results-grid"></div>
+<div class="tools">
+<button id="export" class="primary" type="button">Export responses</button>
+<button id="import" class="secondary" type="button">Import responses</button>
+<button id="print" class="secondary" type="button">Print / save PDF</button>
+<button id="clear" class="danger" type="button">Clear session</button>
+<input id="importFile" type="file" accept=".json,application/json">
+</div>
+<p class="privacy">Answers remain in this browser unless you export, print or intentionally share them. Clear the session afterward when using a shared device.</p>
+</section>
+</main>
+
+<nav class="nav"><div class="navin"><button id="back" class="secondary" type="button">Back</button><button id="next" class="primary" type="button">Begin</button></div></nav>
+
+<script>
+(function(){
+"use strict";
+var KEY="connection-personality-profile-v1";
+var sectionData=[
+["Your natural personality","How you recharge, decide, communicate and respond to stress.",[
+"After spending time with people, do you usually feel energized or need time alone?",
+"I enjoy unfamiliar experiences, ideas, cultures and ways of living.",
+"I feel more comfortable with a plan than with leaving everything spontaneous.",
+"I normally make important decisions through logic, emotion or a combination of both?",
+"I notice subtle changes in people's moods and behavior.",
+"When something bothers me, I usually talk about it quickly instead of holding it inside.",
+"What part of your personality do people commonly misunderstand?",
+"What brings out the most confident version of you?",
+"What causes you to emotionally withdraw?",
+"When you are overwhelmed, what kind of support actually helps?"
+]],
+["Emotional connection","Safety, trust, reassurance, support and emotional availability.",[
+"What makes you feel emotionally safe with someone?",
+"Which is most meaningful to you: affectionate words, quality time, physical affection, thoughtful actions or gifts?",
+"I need regular reassurance when I care deeply about someone.",
+"I can ask directly for what I need without feeling guilty.",
+"When someone becomes distant, do you pursue clarity, give them space, become distant yourself or feel uncertain?",
+"What makes it easier for you to trust someone?",
+"What behavior can damage your trust even if it seems small?",
+"When you are hurt, do you want comfort immediately or time to process first?",
+"What do you wish people understood about how you love?",
+"What is something you need in a relationship but sometimes struggle to communicate?"
+]],
+["Dating and intimacy","Desire, affection, closeness, boundaries and respectful communication.",[
+"What makes you feel genuinely desired rather than merely complimented?",
+"What does emotional intimacy mean to you?",
+"Physical affection is important to me when building a romantic connection.",
+"Do you prefer affection to be spontaneous, verbally discussed or a mixture of both?",
+"What boundaries help you feel respected while getting closer to somebody?",
+"What makes romantic attention feel sincere to you?",
+"What makes you lose romantic interest, even when attraction exists?",
+"What is one intimate—but nonsexual—experience you would love to share with a partner?",
+"Do you experience emotional and physical attraction together, or can they develop separately?",
+"What should someone always ask rather than assume about you?"
+]],
+["Conflict and compatibility","How you manage disagreement, repair trust and balance closeness with independence.",[
+"During disagreement, do you prefer to resolve it immediately or return after calming down?",
+"I can disagree with someone without questioning the entire relationship.",
+"What does a sincere apology need to include?",
+"Which hurts you more: harsh words, emotional distance, dishonesty, inconsistency or feeling unimportant?",
+"What conflict pattern from previous relationships would you never want to repeat?",
+"How should a partner bring up something difficult with you?",
+"What is the difference between a mistake you can forgive and a pattern you cannot accept?",
+"What are your three strongest relationship boundaries?",
+"Maintaining meaningful independence inside a relationship is important to me.",
+"When have you felt most understood by another person?"
+]],
+["Values and future","Commitment, life direction, priorities and long-term compatibility.",[
+"What three values guide your major life decisions?",
+"What does commitment mean to you in practice?",
+"What kind of life would feel meaningful five years from now?",
+"How important are marriage, children, career, travel, faith, community and financial stability to you?",
+"What role should a partner play in your ambitions?",
+"What would make a relationship feel peaceful rather than exhausting?",
+"What are you unwilling to sacrifice for a relationship?",
+"What are you willing to work hard to protect in a relationship?",
+"What kind of person helps you become your best self?",
+"Based on what you know about me, where do you think we naturally connect—and where might we need more understanding?"
+]]];
+var ratings={2:1,3:1,5:1,6:1,13:1,14:1,23:1,32:1,39:1};
+var state={view:-1,person:"",session:"",consent:false,answers:{}};
+var $=function(id){return document.getElementById(id)};
+var sections=$("sections"),results=$("results"),back=$("back"),next=$("next");
+var number=0;
+
+sectionData.forEach(function(s,si){
+ var card=document.createElement("section");card.className="panel";card.dataset.section=si;card.hidden=true;
+ card.innerHTML='<p class="section-tag">Part '+(si+1)+' of 5</p><h2>'+s[0]+'</h2><p class="intro">'+s[1]+'</p>';
+ s[2].forEach(function(text,qi){
+  number++;
+  var q=document.createElement("div");q.className="question"+(qi===0?" first":"");
+  var control;
+  if(ratings[number]){
+   var choices="";
+   [1,2,3,4,5].forEach(function(v){choices+='<input id="q'+number+'-'+v+'" name="q'+number+'" data-q="'+number+'" type="radio" value="'+v+'"><label for="q'+number+'-'+v+'">'+v+'</label>'});
+   control='<div class="scale" role="radiogroup">'+choices+'</div><div class="legend"><span>Strongly disagree</span><span>Strongly agree</span></div>';
+  }else{
+   control='<textarea data-q="'+number+'" placeholder="Write your answer, or leave blank to skip." aria-label="Answer to question '+number+'"></textarea>';
+  }
+  q.innerHTML='<div class="qtitle"><span class="num">'+number+'</span><span>'+text+'</span></div>'+control;
+  card.appendChild(q);
+ });
+ sections.appendChild(card);
+});
+
+function save(){
+ state.person=$("person").value.trim();state.session=$("session").value.trim();state.consent=$("consent").checked;
+ localStorage.setItem(KEY,JSON.stringify(state));$("saved").textContent="Saved";
+ setTimeout(function(){$("saved").textContent="Saved privately on this device"},700);progress();
+}
+function load(){
+ var raw=localStorage.getItem(KEY);if(!raw)return;
+ try{
+  Object.assign(state,JSON.parse(raw));$("person").value=state.person||"";$("session").value=state.session||"";$("consent").checked=!!state.consent;
+  Object.keys(state.answers||{}).forEach(function(n){
+   var a=state.answers[n],t=document.querySelector('textarea[data-q="'+n+'"]');
+   if(t)t.value=a;else{var r=document.querySelector('input[data-q="'+n+'"][value="'+a+'"]');if(r)r.checked=true}
+  });
+ }catch(e){localStorage.removeItem(KEY)}
+}
+function progress(){
+ var count=Object.keys(state.answers).filter(function(k){return String(state.answers[k]).trim()}).length;
+ $("progress").textContent=count+" of 50 answered";$("bar").style.width=Math.round(count/50*100)+"%";
+}
+function collect(e){
+ var n=e.target.dataset.q;if(!n)return;var v=e.target.value.trim();if(v)state.answers[n]=v;else delete state.answers[n];save();
+}
+function show(){
+ document.querySelectorAll("[data-section]").forEach(function(c){c.hidden=Number(c.dataset.section)!==state.view});
+ results.hidden=state.view!==5;back.disabled=state.view===-1;
+ next.textContent=state.view===-1?"Begin":state.view<4?"Next":state.view===4?"See reflection":"Return to beginning";
+ if(state.view===5)render();window.scrollTo(0,0);save();
+}
+function val(n){var v=Number(state.answers[n]);return Number.isFinite(v)?v:null}
+function pole(v,low,mid,high){return v===null?"Not enough information":v<=2?low:v===3?mid:high}
+function result(title,value,note){return '<article class="result"><h3>'+title+'</h3><p><strong>'+value+'</strong></p><p>'+note+'</p></article>'}
+function render(){
+ $("resultsGrid").innerHTML=[
+ result("Openness",pole(val(2),"Grounded and familiar","Flexible","Exploratory and curious"),"Interest in unfamiliar ideas and experiences."),
+ result("Structure",pole(val(3),"Spontaneous","Adaptable","Plan-oriented"),"Preference for planning versus improvisation."),
+ result("Emotional awareness",pole(val(5),"Prefers direct signals","Situationally aware","Highly attuned"),"Sensitivity to subtle emotional changes."),
+ result("Emotional expression",pole(val(6),"Processes privately","Balances time and discussion","Addresses concerns directly"),"How quickly concerns are discussed."),
+ result("Reassurance",pole(val(13),"Low reassurance need","Context-dependent","Values regular reassurance"),"Reassurance needs as connection deepens."),
+ result("Needs communication",pole(val(14),"May communicate indirectly","Developing directness","Comfortably asks directly"),"Comfort expressing needs without guilt."),
+ result("Physical affection",pole(val(23),"Lower emphasis","One of several needs","High importance"),"Role of physical affection in connection."),
+ result("Conflict security",pole(val(32),"Conflict may feel threatening","Situation-dependent","Separates conflict from commitment"),"Security during disagreement."),
+ result("Autonomy",pole(val(39),"Prefers high togetherness","Balances both","Strongly values independence"),"Individual space inside a relationship.")
+ ].join("");
+}
+function exportData(){
+ save();var payload={questionnaire:"Connection & Personality Profile",version:1,exportedAt:new Date().toISOString(),participantName:state.person,connectionName:state.session,consentRecorded:state.consent,answers:state.answers,questions:sectionData.reduce(function(a,s){return a.concat(s[2])},[])};
+ var blob=new Blob([JSON.stringify(payload,null,2)],{type:"application/json"}),url=URL.createObjectURL(blob),a=document.createElement("a");
+ var name=(state.person||"connection-profile").replace(/[^a-z0-9]+/gi,"-").replace(/^-|-$/g,"").toLowerCase();
+ a.href=url;a.download=(name||"connection-profile")+"-responses.json";a.click();URL.revokeObjectURL(url);
+}
+function importData(file){
+ var reader=new FileReader();reader.onload=function(){
+  try{var p=JSON.parse(reader.result);if(!p.answers||typeof p.answers!=="object")throw Error();state={view:-1,person:p.participantName||"",session:p.connectionName||"",consent:!!p.consentRecorded,answers:p.answers};localStorage.setItem(KEY,JSON.stringify(state));location.reload()}
+  catch(e){alert("This is not a valid questionnaire export.")}
+ };reader.readAsText(file);
+}
+document.addEventListener("input",collect);document.addEventListener("change",collect);
+$("person").addEventListener("input",save);$("session").addEventListener("input",save);$("consent").addEventListener("change",save);
+next.addEventListener("click",function(){if(state.view===-1&&!$("consent").checked){alert("Please accept the voluntary participation statement before beginning.");return}state.view=state.view===5?-1:state.view+1;show()});
+back.addEventListener("click",function(){state.view=Math.max(-1,state.view-1);show()});
+$("export").onclick=exportData;$("import").onclick=function(){$("importFile").click()};$("print").onclick=function(){print()};
+$("clear").onclick=function(){if(confirm("Clear every saved answer on this device?")){localStorage.removeItem(KEY);location.reload()}};
+$("importFile").onchange=function(){if(this.files[0])importData(this.files[0])};
+load();progress();show();
+})();
+</script>
+</body>
+</html>
