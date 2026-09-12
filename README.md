@@ -225,7 +225,7 @@ For major changes, please open an issue first to discuss.
 
 **Prototype, v0.1.0.** Treat the verified core as usable-and-rare; treat the roadmap items as intent, not capability.
 
-- **License**: See repository license file
+- **License**: MIT — see [LICENSE](LICENSE)
 - **Stability**: Pre-release; expect breaking changes
 - **Feedback**: Open an issue for bugs, feature requests, or clarifications
 
